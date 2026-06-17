@@ -6,7 +6,7 @@ Last updated: 2026-06-17
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
 - Active branch: `codex/contract-freeze-raganything-v1`
-- Active PR lane: PR1, pre-publish verification in progress
+- Active PR lane: PR1, waiting remote feedback gate after Copilot fixes
 - Sibling repos: off-limits unless a future task explicitly names them
 - Current task: contract freeze and managed-PR status only
 
@@ -25,7 +25,7 @@ Last updated: 2026-06-17
 
 | PR | Branch | Status | Scope |
 | --- | --- | --- | --- |
-| PR1 | `codex/contract-freeze-raganything-v1` | Fixing Copilot comments | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
+| PR1 | `codex/contract-freeze-raganything-v1` | Waiting remote gate | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
 | PR2 | TBD | Queued | Python package and CLI skeleton. |
 | PR3 | TBD | Queued | `init` and `inspect`. |
 | PR4 | TBD | Queued | `ingest`. |
@@ -46,6 +46,7 @@ Branch deletion outside this scoped managed-PR program, force-push, history rewr
 - Passed: `git diff --check`
 - Not present: repo-configured markdown/static checks; no `package.json`, `pyproject.toml`, markdownlint, prettier, or remark command/config was found
 - Passed: Pre-PR Codex Review Gate via npm Codex CLI fallback because the WindowsApps `codex`/`codex.exe` launcher fails with `Access is denied`
+- Fixed: Copilot comments on the OS-specific status path and plan grammar issue; reran `git diff --check` and the Pre-PR Codex Review Gate
 
 Command used:
 
