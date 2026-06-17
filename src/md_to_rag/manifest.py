@@ -133,8 +133,13 @@ def initialize_project(project: str | Path) -> InitProjectResult:
     if manifest_changed:
         _write_manifest(manifest_path, manifest)
 
-    message = "Project initialized." if created else "Project already initialized."
     changed = manifest_changed or layout_changed
+    if created:
+        message = "Project initialized."
+    elif changed:
+        message = "Project updated."
+    else:
+        message = "Project already initialized."
     data = InitResponseData(
         project_root=str(project_root.resolve()),
         manifest_path=str(manifest_path.resolve()),
@@ -260,7 +265,7 @@ def _normalized_manifest(
     } if existing_manifest else {}
 
     command_status = [
-        _normalized_command_status(command, existing_statuses.get(command), created_at)
+        _normalized_command_status(command, existing_statuses.get(command), now)
         for command in CommandName
     ]
     return ProjectManifest(
@@ -275,7 +280,7 @@ def _normalized_manifest(
 def _normalized_command_status(
     command: CommandName,
     existing_status: ManifestCommandStatus | None,
-    created_at: str,
+    default_updated_at: str,
 ) -> ManifestCommandStatus:
     if command is CommandName.INIT:
         return ManifestCommandStatus(
@@ -283,7 +288,7 @@ def _normalized_command_status(
             status=CommandStatus.OK,
             message="Project initialized.",
             artifact_path=MANIFEST_FILENAME,
-            updated_at=existing_status.updated_at if existing_status else created_at,
+            updated_at=existing_status.updated_at if existing_status else default_updated_at,
             data=existing_status.data if existing_status else {},
         )
 
@@ -293,7 +298,7 @@ def _normalized_command_status(
             status=CommandStatus.OK,
             message="Inspect available.",
             artifact_path=MANIFEST_FILENAME,
-            updated_at=existing_status.updated_at if existing_status else created_at,
+            updated_at=existing_status.updated_at if existing_status else default_updated_at,
             data=existing_status.data if existing_status else {},
         )
 

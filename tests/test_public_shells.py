@@ -110,8 +110,71 @@ def test_init_reports_repaired_artifact_directories_as_changed(tmp_path: Path) -
     assert repaired.status is CommandStatus.OK
     assert repaired.data.created is False
     assert repaired.data.changed is True
+    assert repaired.message == "Project updated."
     assert (project / "chunks").is_dir()
     assert manifest_path.read_text(encoding="utf-8") == first_manifest_text
+
+
+def test_init_backfills_manifest_statuses_with_current_timestamp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from md_to_rag import manifest as manifest_module
+
+    project = tmp_path / "old-manifest"
+    project.mkdir()
+    for relative_path in ("source", "documents", "chunks", "embeddings", "indexes", "reports"):
+        (project / relative_path).mkdir()
+    manifest_path = project / "corpus_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_name": "md_to_rag.corpus_manifest",
+                "schema_version": "1.0",
+                "md_to_rag_version": __version__,
+                "created_at": "2026-06-01T00:00:00Z",
+                "updated_at": "2026-06-01T00:00:00Z",
+                "artifact_directories": {
+                    "source": "source",
+                    "documents": "documents",
+                    "chunks": "chunks",
+                    "embeddings": "embeddings",
+                    "indexes": "indexes",
+                    "reports": "reports",
+                },
+                "command_status": [
+                    {
+                        "command": "init",
+                        "status": "ok",
+                        "message": "Project initialized.",
+                        "artifact_path": "corpus_manifest.json",
+                        "updated_at": "2026-06-01T00:00:00Z",
+                        "data": {},
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(manifest_module, "_utc_now", lambda: "2026-06-17T21:30:00Z")
+
+    response = api.init(project)
+
+    assert response.status is CommandStatus.OK
+    assert response.data.created is False
+    assert response.data.changed is True
+    assert response.message == "Project updated."
+    stored_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert stored_manifest["created_at"] == "2026-06-01T00:00:00Z"
+    assert stored_manifest["updated_at"] == "2026-06-17T21:30:00Z"
+    status_by_command = {
+        status["command"]: status for status in stored_manifest["command_status"]
+    }
+    assert status_by_command["init"]["updated_at"] == "2026-06-01T00:00:00Z"
+    assert status_by_command["inspect"]["updated_at"] == "2026-06-17T21:30:00Z"
 
 
 def test_cli_inspect_json_reads_manifest_after_init(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ Last updated: 2026-06-17
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
 - Active branch: `codex/manifest-init-inspect`
-- Active PR lane: PR3, pre-publish verification passed; awaiting PR publish
+- Active PR lane: PR3, PR #5 remote feedback fixed; awaiting follow-up push/merge gate
 - Sibling repos: off-limits unless a future task explicitly names them
 - Current task: Real `init` and `inspect` behavior only; all other runtime commands remain typed skeletons
 
@@ -27,7 +27,7 @@ Last updated: 2026-06-17
 | --- | --- | --- | --- |
 | PR1 | `codex/contract-freeze-raganything-v1` | Merged (#3) | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
 | PR2 | `codex/package-interface-shells` | Merged (#4) | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
-| PR3 | `codex/manifest-init-inspect` | Pre-publish verification passed | Real `init` and `inspect`. |
+| PR3 | `codex/manifest-init-inspect` | PR #5 remote feedback fixed | Real `init` and `inspect`. |
 | PR4 | TBD | Queued | `ingest`. |
 | PR5 | TBD | Queued | `chunk`. |
 | PR6 | TBD | Queued | `embed` and cache/profile behavior. |
@@ -88,7 +88,7 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 ## PR3 Verification
 
 - Scope: real `init` creates `corpus_manifest.json` plus `source/`, `documents/`, `chunks/`, `embeddings/`, `indexes/`, and `reports/`; real `inspect` reads md_to_rag-owned manifest/status schemas and returns typed missing/invalid artifact responses; non-PR3 commands keep typed skeleton responses.
-- Passed: `pytest` (20 tests)
+- Passed: `pytest` (21 tests)
 - Passed: `python -m md_to_rag --help`
 - Passed: installed `md-to-rag --help`
 - Passed: every command `--help`
@@ -98,4 +98,5 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`
 - Resolved local Codex review findings: untracked manifest helper included in diff via intent-to-add, typed init filesystem/write errors, target-anchored missing-artifact lookup, manifest schema marker validation, invalid-manifest reporting, and `inspect` marked implemented in generated manifests.
 - Resolved controller code-quality review findings: MCP init/inspect output schemas now require the real response envelope, init error data uses an owned empty payload schema, and `init.changed` reports repaired artifact directories.
-- PR publish is next after final controller staging review.
+- Resolved PR #5 Copilot comments: repair/upgrade init runs now report `Project updated.`, and backfilled manifest status rows use the normalization timestamp instead of the project creation timestamp.
+- Follow-up push and merge gate are next.
