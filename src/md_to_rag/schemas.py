@@ -60,6 +60,25 @@ class EmptyResponseData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class IngestResponseData(BaseModel):
+    project_root: str
+    manifest_path: str
+    source_path: str
+    changed: bool
+    source_count: int
+    document_count: int
+    source_manifest_path: str
+    documents_path: str
+    source_manifest_hash: str
+    documents_hash: str
+
+
+class IngestErrorData(BaseModel):
+    project_root: str | None = None
+    manifest_path: str | None = None
+    source_path: str | None = None
+
+
 class ManifestCommandStatus(BaseModel):
     command: CommandName
     status: CommandStatus
@@ -118,6 +137,11 @@ class InitResponse(CommandResponse):
     data: InitResponseData | EmptyResponseData
 
 
+class IngestResponse(CommandResponse):
+    command: Literal[CommandName.INGEST]
+    data: IngestResponseData | IngestErrorData | EmptyResponseData
+
+
 class InspectResponse(CommandResponse):
     command: Literal[CommandName.INSPECT]
     data: InspectResponseData
@@ -144,7 +168,7 @@ COMMAND_INPUT_MODELS: dict[CommandName, type[BaseModel]] = {
 
 COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INIT: InitResponse,
-    CommandName.INGEST: CommandResponse,
+    CommandName.INGEST: IngestResponse,
     CommandName.CHUNK: CommandResponse,
     CommandName.EMBED: CommandResponse,
     CommandName.INDEX: CommandResponse,

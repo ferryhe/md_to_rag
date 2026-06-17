@@ -38,9 +38,11 @@ def test_dependency_bounds_match_public_shell_requirements() -> None:
 
 def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
     project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
     calls = {
         "init": lambda: api.init(project),
-        "ingest": lambda: api.ingest(source="."),
+        "ingest": lambda: api.ingest(source=project / "source"),
         "chunk": lambda: api.chunk(manifest="documents.jsonl"),
         "embed": lambda: api.embed(chunks="chunks.jsonl"),
         "index": lambda: api.index(embeddings="embeddings.jsonl"),
@@ -53,7 +55,7 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
         response = call()
         assert isinstance(response, CommandResponse)
         assert response.__class__.__module__.startswith("md_to_rag.")
-        if command in {"init", "inspect"}:
+        if command in {"init", "ingest", "inspect"}:
             assert response.status is CommandStatus.OK
         else:
             assert response.status is CommandStatus.NOT_IMPLEMENTED
@@ -432,8 +434,13 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
 
     output_titles = {tool.command: tool.output_schema["title"] for tool in tools}
     assert output_titles[CommandName.INIT] == "InitResponse"
+    assert output_titles[CommandName.INGEST] == "IngestResponse"
     assert output_titles[CommandName.INSPECT] == "InspectResponse"
-    for command in set(CommandName) - {CommandName.INIT, CommandName.INSPECT}:
+    for command in set(CommandName) - {
+        CommandName.INIT,
+        CommandName.INGEST,
+        CommandName.INSPECT,
+    }:
         assert output_titles[command] == "CommandResponse"
 
     query_tool = next(tool for tool in tools if tool.command is CommandName.QUERY)
@@ -441,6 +448,7 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     assert query_tool.input_schema["required"] == ["question"]
 
     init_tool = next(tool for tool in tools if tool.command is CommandName.INIT)
+    ingest_tool = next(tool for tool in tools if tool.command is CommandName.INGEST)
     inspect_tool = next(tool for tool in tools if tool.command is CommandName.INSPECT)
     assert set(init_tool.output_schema["required"]) >= {"command", "status", "message", "data"}
     assert set(inspect_tool.output_schema["required"]) >= {
@@ -453,6 +461,18 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     assert {option["$ref"].split("/")[-1] for option in init_data_options} == {
         "EmptyResponseData",
         "InitResponseData",
+    }
+    assert set(ingest_tool.output_schema["required"]) >= {
+        "command",
+        "status",
+        "message",
+        "data",
+    }
+    ingest_data_options = ingest_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in ingest_data_options} == {
+        "EmptyResponseData",
+        "IngestErrorData",
+        "IngestResponseData",
     }
 
 
@@ -488,9 +508,8 @@ def test_json_skeleton_output_is_stable_and_backend_neutral() -> None:
     assert "raganything" not in first.output.lower()
 
 
-def test_commands_outside_pr3_keep_json_skeleton_behavior() -> None:
+def test_commands_outside_pr4_keep_json_skeleton_behavior() -> None:
     command_args = {
-        "ingest": ["ingest", "--json"],
         "chunk": ["chunk", "--json"],
         "embed": ["embed", "--json"],
         "index": ["index", "--json"],
@@ -498,7 +517,6 @@ def test_commands_outside_pr3_keep_json_skeleton_behavior() -> None:
     }
 
     assert set(command_args) == {
-        "ingest",
         "chunk",
         "embed",
         "index",

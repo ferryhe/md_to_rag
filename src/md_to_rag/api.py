@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .ingest import ingest_project
 from .manifest import ManifestError, initialize_project, inspect_project
 from .schemas import (
     CommandName,
@@ -9,6 +10,7 @@ from .schemas import (
     CommandStatus,
     EmptyResponseData,
     InitResponse,
+    IngestResponse,
     InspectResponse,
     skeleton_response,
 )
@@ -35,9 +37,16 @@ def init(project: str | Path = ".") -> InitResponse:
     )
 
 
-def ingest(source: str | Path | None = None) -> CommandResponse:
-    data = {"source": str(source)} if source is not None else {}
-    return skeleton_response(CommandName.INGEST, data=data)
+def ingest(source: str | Path | None = None) -> IngestResponse:
+    result = ingest_project(source)
+    return IngestResponse(
+        command=CommandName.INGEST,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
 
 
 def chunk(manifest: str | Path | None = None) -> CommandResponse:
