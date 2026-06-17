@@ -17,13 +17,14 @@ app = typer.Typer(
 
 
 def _emit(response: CommandResponse, json_output: bool) -> None:
+    payload = response.model_dump(mode="json")
     if json_output:
-        typer.echo(response.model_dump_json())
+        typer.echo(json.dumps(payload, separators=(",", ":")))
         return
 
     typer.echo(f"{response.command.value}: {response.status.value} - {response.message}")
-    if response.data:
-        typer.echo(json.dumps(response.data, sort_keys=True))
+    if payload["data"]:
+        typer.echo(json.dumps(payload["data"], sort_keys=True))
 
 
 @app.command("init")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from pydantic import BaseModel, Field, JsonValue
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class CommandName(str, Enum):
@@ -54,6 +56,29 @@ class InspectRequest(BaseModel):
     artifact: str | None = None
 
 
+class EmptyResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestCommandStatus(BaseModel):
+    command: CommandName
+    status: CommandStatus
+    message: str
+    artifact_path: str | None = None
+    updated_at: str | None = None
+    data: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class ProjectManifest(BaseModel):
+    schema_name: Literal["md_to_rag.corpus_manifest"] = "md_to_rag.corpus_manifest"
+    schema_version: Literal["1.0"] = "1.0"
+    md_to_rag_version: str
+    created_at: str
+    updated_at: str
+    artifact_directories: dict[str, str]
+    command_status: list[ManifestCommandStatus]
+
+
 class CommandRequest(BaseModel):
     command: CommandName
     options: dict[str, JsonValue] = Field(default_factory=dict)
@@ -66,6 +91,36 @@ class CommandResponse(BaseModel):
     artifact_path: str | None = None
     error: CommandError | None = None
     data: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class InitResponseData(BaseModel):
+    project_root: str
+    manifest_path: str
+    created: bool
+    changed: bool
+    directories: dict[str, str]
+    manifest: ProjectManifest
+
+
+class InspectResponseData(BaseModel):
+    artifact: str
+    artifact_exists: bool
+    artifact_type: str
+    project_root: str | None = None
+    manifest_path: str | None = None
+    manifest_exists: bool = False
+    manifest: ProjectManifest | None = None
+    issues: list[str] = Field(default_factory=list)
+
+
+class InitResponse(CommandResponse):
+    command: Literal[CommandName.INIT]
+    data: InitResponseData | EmptyResponseData
+
+
+class InspectResponse(CommandResponse):
+    command: Literal[CommandName.INSPECT]
+    data: InspectResponseData
 
 
 class ToolMetadata(BaseModel):
@@ -84,6 +139,17 @@ COMMAND_INPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INDEX: IndexRequest,
     CommandName.QUERY: QueryRequest,
     CommandName.INSPECT: InspectRequest,
+}
+
+
+COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
+    CommandName.INIT: InitResponse,
+    CommandName.INGEST: CommandResponse,
+    CommandName.CHUNK: CommandResponse,
+    CommandName.EMBED: CommandResponse,
+    CommandName.INDEX: CommandResponse,
+    CommandName.QUERY: CommandResponse,
+    CommandName.INSPECT: InspectResponse,
 }
 
 
