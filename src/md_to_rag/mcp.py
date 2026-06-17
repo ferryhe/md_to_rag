@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .schemas import COMMAND_INPUT_MODELS, CommandName, CommandResponse, ToolMetadata
+from .schemas import COMMAND_INPUT_MODELS, COMMAND_OUTPUT_MODELS, CommandName, ToolMetadata
 
 
 _TOOL_DESCRIPTIONS = {
@@ -15,14 +15,13 @@ _TOOL_DESCRIPTIONS = {
 
 
 def list_tools() -> list[ToolMetadata]:
-    output_schema = CommandResponse.model_json_schema()
     return [
         ToolMetadata(
             name=f"md_to_rag_{command.value}",
             command=command,
             description=_TOOL_DESCRIPTIONS[command],
             input_schema=COMMAND_INPUT_MODELS[command].model_json_schema(),
-            output_schema=output_schema,
+            output_schema=COMMAND_OUTPUT_MODELS[command].model_json_schema(),
         )
         for command in CommandName
     ]

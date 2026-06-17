@@ -5,10 +5,10 @@ Last updated: 2026-06-17
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/package-interface-shells`
-- Active PR lane: PR2, controller verification after review fixes
+- Active branch: `codex/manifest-init-inspect`
+- Active PR lane: PR3, pre-publish verification passed; awaiting PR publish
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: Python package, CLI/API/MCP skeleton, owned schemas, and focused tests only
+- Current task: Real `init` and `inspect` behavior only; all other runtime commands remain typed skeletons
 
 ## Current Contract Decisions
 
@@ -26,8 +26,8 @@ Last updated: 2026-06-17
 | PR | Branch | Status | Scope |
 | --- | --- | --- | --- |
 | PR1 | `codex/contract-freeze-raganything-v1` | Merged (#3) | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
-| PR2 | `codex/package-interface-shells` | Pre-publish verification | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
-| PR3 | TBD | Queued | `init` and `inspect`. |
+| PR2 | `codex/package-interface-shells` | Merged (#4) | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
+| PR3 | `codex/manifest-init-inspect` | Pre-publish verification passed | Real `init` and `inspect`. |
 | PR4 | TBD | Queued | `ingest`. |
 | PR5 | TBD | Queued | `chunk`. |
 | PR6 | TBD | Queued | `embed` and cache/profile behavior. |
@@ -71,5 +71,31 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 
 ## Notes
 
-- PR2 must not implement real runtime `init`, `ingest`, `chunk`, `embed`, `index`, `query`, or `inspect` behavior beyond stable typed skeleton responses and help surfaces.
+- PR3 scope is limited to real `init` and `inspect`: create `corpus_manifest.json`, standard artifact directories, idempotent manifest/status data, API parity, MCP schema metadata, focused tests, and minimal README usage.
+- PR3 must preserve typed skeleton responses for `ingest`, `chunk`, `embed`, `index`, and `query`; do not implement their runtime behavior.
 - RAG-Anything remains optional internal adapter/backend only and is not a default dependency.
+
+## PR3 Verification Plan
+
+- Required: `pytest`
+- Required: `python -m md_to_rag --help`
+- Required: installed `md-to-rag --help`
+- Required: every command `--help`
+- Required: `md-to-rag init <tmp> --json`, rerun same command, `md-to-rag inspect <tmp> --json`, and `md-to-rag inspect <missing> --json`
+- Required: `git diff --check`
+- Required: Pre-PR Codex Review Gate via native `codex` or `npx.cmd --yes @openai/codex` fallback if native remains blocked
+
+## PR3 Verification
+
+- Scope: real `init` creates `corpus_manifest.json` plus `source/`, `documents/`, `chunks/`, `embeddings/`, `indexes/`, and `reports/`; real `inspect` reads md_to_rag-owned manifest/status schemas and returns typed missing/invalid artifact responses; non-PR3 commands keep typed skeleton responses.
+- Passed: `pytest` (20 tests)
+- Passed: `python -m md_to_rag --help`
+- Passed: installed `md-to-rag --help`
+- Passed: every command `--help`
+- Passed: installed CLI smoke with `md-to-rag init <tmp> --json`, rerun same command, `md-to-rag inspect <tmp> --json`, and `md-to-rag inspect <missing> --json`
+- Passed: `git diff --check` with CRLF conversion warnings for touched text files only
+- Native `codex.exe` review gate attempt failed with `Access is denied`
+- Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`
+- Resolved local Codex review findings: untracked manifest helper included in diff via intent-to-add, typed init filesystem/write errors, target-anchored missing-artifact lookup, manifest schema marker validation, invalid-manifest reporting, and `inspect` marked implemented in generated manifests.
+- Resolved controller code-quality review findings: MCP init/inspect output schemas now require the real response envelope, init error data uses an owned empty payload schema, and `init.changed` reports repaired artifact directories.
+- PR publish is next after final controller staging review.

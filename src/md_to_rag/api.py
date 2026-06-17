@@ -2,11 +2,37 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .schemas import CommandName, CommandResponse, skeleton_response
+from .manifest import ManifestError, initialize_project, inspect_project
+from .schemas import (
+    CommandName,
+    CommandResponse,
+    CommandStatus,
+    EmptyResponseData,
+    InitResponse,
+    InspectResponse,
+    skeleton_response,
+)
 
 
-def init(project: str | Path = ".") -> CommandResponse:
-    return skeleton_response(CommandName.INIT, data={"project": str(project)})
+def init(project: str | Path = ".") -> InitResponse:
+    try:
+        result = initialize_project(project)
+    except ManifestError as error:
+        return InitResponse(
+            command=CommandName.INIT,
+            status=CommandStatus.ERROR,
+            message=error.message,
+            error=error.to_command_error(),
+            data=EmptyResponseData(),
+        )
+
+    return InitResponse(
+        command=CommandName.INIT,
+        status=CommandStatus.OK,
+        message=result.message,
+        artifact_path=result.data.manifest_path,
+        data=result.data,
+    )
 
 
 def ingest(source: str | Path | None = None) -> CommandResponse:
@@ -33,6 +59,13 @@ def query(question: str) -> CommandResponse:
     return skeleton_response(CommandName.QUERY, data={"question": question})
 
 
-def inspect(artifact: str | Path | None = None) -> CommandResponse:
-    data = {"artifact": str(artifact)} if artifact is not None else {}
-    return skeleton_response(CommandName.INSPECT, data=data)
+def inspect(artifact: str | Path | None = None) -> InspectResponse:
+    result = inspect_project(artifact)
+    return InspectResponse(
+        command=CommandName.INSPECT,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.data.manifest_path,
+        error=result.error,
+        data=result.data,
+    )
