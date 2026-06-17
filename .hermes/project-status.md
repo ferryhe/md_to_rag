@@ -5,10 +5,10 @@ Last updated: 2026-06-17
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/contract-freeze-raganything-v1`
-- Active PR lane: PR1, waiting remote feedback gate after Copilot fixes
+- Active branch: `codex/package-interface-shells`
+- Active PR lane: PR2, controller verification after review fixes
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: contract freeze and managed-PR status only
+- Current task: Python package, CLI/API/MCP skeleton, owned schemas, and focused tests only
 
 ## Current Contract Decisions
 
@@ -25,8 +25,8 @@ Last updated: 2026-06-17
 
 | PR | Branch | Status | Scope |
 | --- | --- | --- | --- |
-| PR1 | `codex/contract-freeze-raganything-v1` | Waiting remote gate | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
-| PR2 | TBD | Queued | Python package and CLI skeleton. |
+| PR1 | `codex/contract-freeze-raganything-v1` | Merged (#3) | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
+| PR2 | `codex/package-interface-shells` | Pre-publish verification | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
 | PR3 | TBD | Queued | `init` and `inspect`. |
 | PR4 | TBD | Queued | `ingest`. |
 | PR5 | TBD | Queued | `chunk`. |
@@ -55,7 +55,21 @@ git fetch origin main
 npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 ```
 
+## PR2 Verification
+
+- Scope: Python 3.11+ package `md-to-rag` version `0.1.0`; Typer CLI commands `init`, `ingest`, `chunk`, `embed`, `index`, `query`, and `inspect`; owned Pydantic schemas; API facade; MCP metadata skeleton; focused tests.
+- Passed: `pytest` (9 tests)
+- Passed: `python -m md_to_rag --help`
+- Passed: installed `md-to-rag --help` and every command `--help`
+- Passed: idempotent JSON skeleton smoke with `md-to-rag query 'What artifacts exist?' --json`
+- Passed: every command `--json` skeleton output parses as JSON
+- Passed: `git diff --check` with a CRLF conversion warning for `.hermes/project-status.md`
+- Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` failed with `Access is denied`, and `npx.ps1` was blocked by PowerShell execution policy.
+- Fixed after code-quality review: MCP tool metadata now uses per-command input schemas, and public request/response payloads are constrained to JSON-compatible values.
+- Fixed after Codex review: dependency lower bounds now require `pydantic>=2.5,<3` for `JsonValue` and `typer>=0.16,<1` for the CLI annotations used by the skeleton.
+- Fixed after Copilot review: public skeleton messages no longer mention PR2, and the version test compares against `pyproject.toml`.
+
 ## Notes
 
-- PR1 must not implement runtime Python package or CLI behavior.
-- Keep changes limited to the allowed documentation and ledger files.
+- PR2 must not implement real runtime `init`, `ingest`, `chunk`, `embed`, `index`, `query`, or `inspect` behavior beyond stable typed skeleton responses and help surfaces.
+- RAG-Anything remains optional internal adapter/backend only and is not a default dependency.

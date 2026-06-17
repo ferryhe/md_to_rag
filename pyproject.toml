@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "md-to-rag"
+version = "0.1.0"
+description = "Markdown to RAG artifact CLI skeleton."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.5,<3",
+    "typer>=0.16,<1",
+]
+
+[project.optional-dependencies]
+raganything = ["raganything>=1.3.1,<2.0"]
+
+[project.scripts]
+md-to-rag = "md_to_rag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
