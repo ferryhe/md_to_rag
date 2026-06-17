@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 from .manifest import (
     MANIFEST_FILENAME,
@@ -75,7 +76,7 @@ def ingest_project(source: str | Path | None = None) -> IngestProjectResult:
 
     try:
         _reject_generated_artifact_source(context)
-        source_rows, document_rows = _collect_rows(context.source_path, context.project_root)
+        source_rows, document_rows = _collect_rows(context)
         source_text = _jsonl_text(source_rows)
         documents_text = _jsonl_text(document_rows)
         source_manifest_path = context.project_root / SOURCE_MANIFEST_PATH
@@ -213,7 +214,9 @@ def _resolve_context(source: str | Path | None) -> _ProjectContext | IngestProje
     )
 
 
-def _collect_rows(source_path: Path, project_root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _collect_rows(context: _ProjectContext) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    source_path = context.source_path
+    project_root = context.project_root
     if source_path.is_dir():
         markdown_paths = sorted(
             (
@@ -224,17 +227,17 @@ def _collect_rows(source_path: Path, project_root: Path) -> tuple[list[dict[str,
             key=lambda path: _relative_to_project_or_raise(path.resolve(), project_root),
         )
         records = [
-            _record_from_markdown(path, project_root)
+            _record_from_markdown(path, context)
             for path in markdown_paths
         ]
         return _rows_from_records(records)
 
     if source_path.is_file() and source_path.suffix.lower() in MARKDOWN_SUFFIXES:
-        return _rows_from_records([_record_from_markdown(source_path, project_root)])
+        return _rows_from_records([_record_from_markdown(source_path, context)])
 
     if source_path.is_file() and source_path.suffix.lower() in {".json", ".jsonl"}:
         records = [
-            _record_from_manifest_row(source_path, project_root, row, index)
+            _record_from_manifest_row(source_path, context, row, index)
             for index, row in enumerate(_read_doc_to_md_rows(source_path))
         ]
         records.sort(key=lambda record: record["source_path"])
@@ -247,19 +250,24 @@ def _collect_rows(source_path: Path, project_root: Path) -> tuple[list[dict[str,
 
 
 def _reject_generated_artifact_source(context: _ProjectContext) -> None:
+    source_path = context.source_path.resolve()
     generated_artifacts = {
         (context.project_root / SOURCE_MANIFEST_PATH).resolve(): SOURCE_MANIFEST_PATH,
         (context.project_root / DOCUMENTS_PATH).resolve(): DOCUMENTS_PATH,
     }
-    artifact_path = generated_artifacts.get(context.source_path.resolve())
+    artifact_path = generated_artifacts.get(source_path)
     if artifact_path is not None:
         raise IngestInputError(
             "source_artifact_collision",
             f"Ingest source cannot be a generated md_to_rag artifact: {artifact_path}",
         )
 
+    _reject_generated_artifact_directory_path(context, source_path)
 
-def _record_from_markdown(path: Path, project_root: Path) -> dict[str, Any]:
+
+def _record_from_markdown(path: Path, context: _ProjectContext) -> dict[str, Any]:
+    project_root = context.project_root
+    _reject_generated_artifact_directory_path(context, path.resolve())
     source_path = _relative_to_project(path.resolve(), project_root)
     if isinstance(source_path, IngestInputError):
         raise source_path
@@ -285,10 +293,11 @@ def _record_from_markdown(path: Path, project_root: Path) -> dict[str, Any]:
 
 def _record_from_manifest_row(
     manifest_path: Path,
-    project_root: Path,
+    context: _ProjectContext,
     row: dict[str, Any],
     index: int,
 ) -> dict[str, Any]:
+    project_root = context.project_root
     markdown_value = _first_value(
         row,
         ("markdown_path", "md_path", "output_path", "content_path", "document_path", "path"),
@@ -310,6 +319,7 @@ def _record_from_manifest_row(
             status=CommandStatus.MISSING_ARTIFACT,
         )
 
+    _reject_generated_artifact_directory_path(context, markdown_path.resolve())
     source_path = _relative_to_project(markdown_path.resolve(), project_root)
     manifest_relative = _relative_to_project(manifest_path.resolve(), project_root)
     if isinstance(source_path, IngestInputError):
@@ -464,6 +474,8 @@ def _metadata_from_manifest_row(row: dict[str, Any], content: str, path: Path) -
 
     title = row.get("title")
     if not isinstance(title, str) or not title.strip():
+        title = metadata.get("title")
+    if not isinstance(title, str) or not title.strip():
         title = _title_from_markdown(content, path)
     metadata["title"] = title.strip()
     return metadata
@@ -589,6 +601,34 @@ def _relative_to_project_or_raise(path: Path, project_root: Path) -> str:
     return relative
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _generated_artifact_directories(context: _ProjectContext) -> dict[Path, str]:
+    return {
+        (context.project_root / relative_path).resolve(): relative_path
+        for name, relative_path in context.manifest.artifact_directories.items()
+        if name != "source"
+    }
+
+
+def _reject_generated_artifact_directory_path(
+    context: _ProjectContext,
+    source_path: Path,
+) -> None:
+    for directory_path, artifact_directory in _generated_artifact_directories(context).items():
+        if source_path == directory_path or _is_relative_to(source_path, directory_path):
+            raise IngestInputError(
+                "source_artifact_collision",
+                f"Ingest source cannot be a generated md_to_rag artifact directory: {artifact_directory}",
+            )
+
+
 def _project_path_from_manifest_value(value: Any, project_root: Path) -> Path:
     if not isinstance(value, str) or not value.strip():
         raise IngestInputError(
@@ -634,13 +674,21 @@ def _portable_upstream_path(value: Any) -> str | None:
         return None
     if not isinstance(value, str) or not value.strip():
         return None
-    normalized_text = value.replace("\\", "/").strip()
-    posix_path = PurePosixPath(normalized_text)
+    stripped = value.strip()
+    normalized_text = stripped.replace("\\", "/")
     windows_path = PureWindowsPath(normalized_text)
+    if bool(windows_path.drive):
+        raise IngestInputError(
+            "manifest_path_not_portable",
+            f"Manifest upstream source path must be relative and portable: {value}",
+        )
+    parsed_uri = urlsplit(stripped)
+    if parsed_uri.scheme:
+        return stripped
+    posix_path = PurePosixPath(normalized_text)
     if (
         posix_path.is_absolute()
         or windows_path.is_absolute()
-        or bool(windows_path.drive)
         or ".." in posix_path.parts
     ):
         raise IngestInputError(

@@ -204,6 +204,32 @@ def test_ingest_doc_to_md_json_and_jsonl_manifests_inside_project(tmp_path: Path
         assert source_row["upstream_source_path"] == "raw/report.pdf"
 
 
+def test_ingest_preserves_doc_to_md_metadata_title(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    markdown_path = project / "source" / "converted.md"
+    markdown_path.write_text("# Markdown Heading\n", encoding="utf-8")
+    manifest_path = project / "source" / "doc_to_md.jsonl"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "markdown_path": "source/converted.md",
+                "metadata": {"title": "Metadata Title", "department": "risk"},
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = api.ingest(source=manifest_path)
+
+    assert response.status is CommandStatus.OK
+    document_row = _jsonl(project / "documents" / "documents.jsonl")[0]
+    assert document_row["metadata"]["title"] == "Metadata Title"
+    assert document_row["metadata"]["department"] == "risk"
+
+
 def test_ingest_doc_to_md_rows_have_unique_document_ids(tmp_path: Path) -> None:
     project = tmp_path / "project"
     api.init(project)
@@ -314,6 +340,34 @@ def test_ingest_preserves_doc_to_md_upstream_document_ids(tmp_path: Path) -> Non
     }
 
 
+def test_ingest_preserves_doc_to_md_upstream_uri_provenance(tmp_path: Path) -> None:
+    for upstream_uri in ("https://example.com/a.pdf", "file:///tmp/a.pdf"):
+        project = tmp_path / f"project-{sha256(upstream_uri.encode()).hexdigest()[:8]}"
+        api.init(project)
+        markdown_path = project / "source" / "converted.md"
+        markdown_path.write_text("# Converted\n", encoding="utf-8")
+        manifest_path = project / "source" / "doc_to_md.jsonl"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "markdown_path": "source/converted.md",
+                    "source_path": upstream_uri,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        response = api.ingest(source=manifest_path)
+
+        assert response.status is CommandStatus.OK
+        document_row = _jsonl(project / "documents" / "documents.jsonl")[0]
+        source_row = _jsonl(project / "source" / "source_manifest.jsonl")[0]
+        assert document_row["provenance"]["source_path"] == upstream_uri
+        assert source_row["upstream_source_path"] == upstream_uri
+
+
 def test_ingest_doc_to_md_ids_survive_manifest_row_reordering(tmp_path: Path) -> None:
     project = tmp_path / "project"
     api.init(project)
@@ -405,6 +459,7 @@ def test_ingest_rejects_nonportable_manifest_upstream_paths(tmp_path: Path) -> N
         "/raw/report.pdf",
         "C:raw/report.pdf",
         "C:/raw/report.pdf",
+        "C://raw/report.pdf",
         "../raw/report.pdf",
     ):
         project = tmp_path / f"project-{sha256(upstream_path.encode()).hexdigest()[:8]}"
@@ -537,6 +592,75 @@ def test_ingest_rejects_sources_that_collide_with_generated_artifacts(tmp_path: 
         assert payload["status"] == "error"
         assert payload["error"]["code"] == "source_artifact_collision"
         assert colliding_source.read_text(encoding="utf-8") == original_text
+        assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_generated_artifact_directories_without_overwriting(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    first = api.ingest(source=project / "source")
+    documents_path = project / "documents" / "documents.jsonl"
+    documents_bytes = documents_path.read_bytes()
+
+    for relative_source in (
+        Path("documents"),
+        Path("chunks"),
+        Path("embeddings"),
+        Path("indexes"),
+        Path("reports"),
+    ):
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(project / relative_source), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "source_artifact_collision"
+        assert documents_path.read_bytes() == documents_bytes
+        assert first.data.document_count == 1
+        assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_generated_artifact_markdown_reached_indirectly(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    first = api.ingest(source=project / "source")
+    documents_path = project / "documents" / "documents.jsonl"
+    documents_bytes = documents_path.read_bytes()
+    generated_markdown = project / "documents" / "generated.md"
+    generated_markdown.write_text("# Generated\n", encoding="utf-8")
+
+    for source in (project, project / "source" / "doc_to_md.jsonl"):
+        if source.suffix == ".jsonl":
+            source.write_text(
+                json.dumps(
+                    {"markdown_path": "documents/generated.md"},
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(source), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "source_artifact_collision"
+        assert documents_path.read_bytes() == documents_bytes
+        assert first.data.document_count == 1
         assert "traceback" not in result.output.lower()
 
 

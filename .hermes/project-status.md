@@ -6,7 +6,7 @@ Last updated: 2026-06-17
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
 - Active branch: `codex/ingest-documents`
-- Active PR lane: PR4 pre-publish verification passed; publishing PR
+- Active PR lane: PR4 open as #6; post-fix validation passed and follow-up push pending
 - Sibling repos: off-limits unless a future task explicitly names them
 - Current task: Real `ingest` behavior only; `chunk`, `embed`, `index`, and `query` remain typed skeletons
 
@@ -28,7 +28,7 @@ Last updated: 2026-06-17
 | PR1 | `codex/contract-freeze-raganything-v1` | Merged (#3) | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
 | PR2 | `codex/package-interface-shells` | Merged (#4) | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
 | PR3 | `codex/manifest-init-inspect` | Merged (#5) | Real `init` and `inspect`. |
-| PR4 | `codex/ingest-documents` | Pre-publish verification passed | `ingest`. |
+| PR4 | `codex/ingest-documents` | Open (#6); follow-up fixes ready to push | `ingest`. |
 | PR5 | TBD | Queued | `chunk`. |
 | PR6 | TBD | Queued | `embed` and cache/profile behavior. |
 | PR7 | TBD | Queued | Native `index` and `query`. |
@@ -104,7 +104,7 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 ## PR4 Verification
 
 - Scope: real `ingest` reads Markdown files/directories and doc_to_md JSON/JSONL manifests inside initialized projects, writes portable `source/source_manifest.jsonl` and `documents/documents.jsonl`, updates ingest manifest status, and leaves `chunk`, `embed`, `index`, and `query` as typed skeletons.
-- Passed: `pytest` (34 tests)
+- Passed: `pytest` (38 tests)
 - Passed: `python -m md_to_rag --help`
 - Passed: installed `md-to-rag --help`
 - Passed: every command `--help`
@@ -116,3 +116,10 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Resolved final path portability finding: Windows drive-relative doc_to_md Markdown and upstream paths such as `C:source/doc.md` and `C:raw/report.pdf` are rejected.
 - Resolved final provenance finding: doc_to_md upstream document IDs used for identity are now preserved in visible provenance/source rows and included in stable source hashes.
 - Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`.
+- Published: PR #6 at `https://github.com/ferryhe/md_to_rag/pull/6`.
+- Resolved post-publish local Codex review finding: generated artifact directories such as `documents/`, `chunks/`, `embeddings/`, `indexes/`, and `reports/` are rejected as ingest sources without overwriting existing artifacts.
+- Resolved post-publish local Codex review findings: upstream URI provenance such as `https://example.com/a.pdf` is preserved without path normalization, and generated artifact directories are rejected even when reached through project-root traversal or doc_to_md manifest rows.
+- Resolved post-publish local Codex review findings: Windows drive-looking upstream paths such as `C://raw/report.pdf` are rejected before URI acceptance, and doc_to_md `metadata.title` is preserved when no top-level title is supplied.
+- Resolved post-publish local Codex review finding: netloc-less upstream URIs such as `file:///tmp/a.pdf` are preserved without path normalization.
+- Post-fix validation passed: `python -m pytest tests/test_ingest_documents.py` (17 tests), `python -m pytest` (38 tests), CLI help checks, installed CLI init/ingest/inspect smoke, and `git diff --check` with CRLF warnings only.
+- Passed: post-fix Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main` with no actionable findings.
