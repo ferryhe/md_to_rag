@@ -67,6 +67,7 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` failed with `Access is denied`, and `npx.ps1` was blocked by PowerShell execution policy.
 - Fixed after code-quality review: MCP tool metadata now uses per-command input schemas, and public request/response payloads are constrained to JSON-compatible values.
 - Fixed after Codex review: dependency lower bounds now require `pydantic>=2.5,<3` for `JsonValue` and `typer>=0.16,<1` for the CLI annotations used by the skeleton.
+- Fixed after Copilot review: public skeleton messages no longer mention PR2, and the version test compares against `pyproject.toml`.
 
 ## Notes
 

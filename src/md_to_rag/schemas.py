@@ -95,6 +95,6 @@ def skeleton_response(
     return CommandResponse(
         command=command,
         status=CommandStatus.NOT_IMPLEMENTED,
-        message=f"{command.value} is defined but not implemented in the PR2 interface shell.",
+        message=f"{command.value} is defined but not implemented yet.",
         data=data or {},
     )

@@ -18,7 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_package_imports_with_version() -> None:
-    assert __version__ == "0.1.0"
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    assert __version__ == pyproject["project"]["version"]
 
 
 def test_dependency_bounds_match_public_shell_requirements() -> None:
