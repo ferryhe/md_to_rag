@@ -2,7 +2,7 @@
 
 > **For Hermes/Codex:** Use the project-isolated Codex worker pattern from `AGENTS.md`. Read `AGENTS.md`, read `.hermes/project-status.md` if present, run `git status --short --branch`, restate repo/branch/scope, and only then edit. After required verification and the Pre-PR Codex Review Gate pass, routine commit, push, and PR creation/update are authorized. For the managed-PR program explicitly authorized on 2026-06-17, after checks and valid Copilot/remote comments are resolved, the controller may merge to `main` and delete that PR's remote/local task branch. Outside this scoped program, force-push, history rewrite, branch deletion, broad cleanup, or deleting unrelated work still requires fresh explicit approval.
 
-**Goal:** Freeze the public md_to_rag contract before runtime implementation: a domain-neutral Markdown corpus to retrievable RAG artifact CLI, API, MCP surface, and artifact layout.
+**Goal:** Freeze the public md_to_rag contract before runtime implementation: a domain-neutral CLI, API, MCP surface, and artifact layout for turning a Markdown corpus into retrievable RAG artifacts.
 
 **Architecture:** CLI-first, JSONL-first, manifest-first. Core layers are source, documents, chunks, embeddings, index, query, and inspect. The v1 public CLI is `md-to-rag` with `init`, `ingest`, `chunk`, `embed`, `index`, `query`, and `inspect`; later `diff` and `rebuild` must be compatible additions. Native artifacts remain the public contract. RAG-Anything is optional internal adapter/backend only.
 

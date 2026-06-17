@@ -4,7 +4,7 @@ Last updated: 2026-06-17
 
 ## Scope
 
-- Repo: `C:\Project\md_to_rag`
+- Repo: `md_to_rag` (local checkout path varies by worker)
 - Active branch: `codex/contract-freeze-raganything-v1`
 - Active PR lane: PR1, pre-publish verification in progress
 - Sibling repos: off-limits unless a future task explicitly names them
@@ -25,7 +25,7 @@ Last updated: 2026-06-17
 
 | PR | Branch | Status | Scope |
 | --- | --- | --- | --- |
-| PR1 | `codex/contract-freeze-raganything-v1` | Pre-publish verification | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
+| PR1 | `codex/contract-freeze-raganything-v1` | Fixing Copilot comments | Freeze public contract, RAG-Anything boundary, managed-PR policy, and controller ledger. |
 | PR2 | TBD | Queued | Python package and CLI skeleton. |
 | PR3 | TBD | Queued | `init` and `inspect`. |
 | PR4 | TBD | Queued | `ingest`. |
