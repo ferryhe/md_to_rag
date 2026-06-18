@@ -9,7 +9,7 @@ _TOOL_DESCRIPTIONS = {
     CommandName.CHUNK: "Create chunk artifact metadata from document manifests.",
     CommandName.EMBED: "Create embedding artifact metadata from chunk artifacts.",
     CommandName.INDEX: "Create index artifact metadata from embedding artifacts.",
-    CommandName.QUERY: "Return a typed query response shell.",
+    CommandName.QUERY: "Return deterministic local retrieval results from index artifacts.",
     CommandName.INSPECT: "Inspect artifact status metadata.",
 }
 

@@ -764,13 +764,15 @@ def test_chunk_splits_single_lines_that_exceed_chunk_limit(tmp_path: Path) -> No
     assert [(row["line_start"], row["line_end"]) for row in rows] == [(1, 1), (1, 1)]
 
 
-def test_index_query_remain_typed_skeletons() -> None:
+def test_index_query_report_missing_artifacts_before_index_exists() -> None:
     responses = [
         api.index(embeddings="embeddings/embeddings.jsonl"),
         api.query("What is indexed?"),
     ]
 
     for response in responses:
-        assert response.status is CommandStatus.NOT_IMPLEMENTED
-        assert response.__class__.__name__ == "CommandResponse"
+        assert response.status is CommandStatus.MISSING_ARTIFACT
+        assert response.error is not None
+        assert response.error.code == "manifest_not_found"
+        assert response.__class__.__name__ in {"IndexResponse", "QueryResponse"}
         assert "raganything" not in response.model_dump_json().lower()

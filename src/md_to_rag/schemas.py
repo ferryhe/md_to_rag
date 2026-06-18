@@ -120,6 +120,74 @@ class EmbedErrorData(BaseModel):
     chunks_path: str | None = None
 
 
+class IndexResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str
+    manifest_path: str
+    embeddings_path: str
+    changed: bool
+    embedding_count: int
+    vector_count: int
+    index_manifest_path: str
+    index_path: str
+    embeddings_hash: str
+    index_hash: str
+    index_manifest_hash: str
+    index_engine: str
+    dimensions: int
+    profile: dict[str, JsonValue]
+    chunks_path: str | None = None
+
+
+class IndexErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = None
+    manifest_path: str | None = None
+    embeddings_path: str | None = None
+
+
+class QueryResultData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int
+    score: float
+    chunk_id: str
+    embedding_id: str
+    doc_id: str
+    source_id: str
+    source_path: str
+    chunk_index: int
+    content: str
+    line_start: int | None = None
+    line_end: int | None = None
+    heading_path: list[str] = Field(default_factory=list)
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    provenance: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class QueryResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str
+    manifest_path: str
+    question: str
+    index_manifest_path: str
+    index_path: str
+    embeddings_path: str
+    result_count: int
+    results: list[QueryResultData]
+
+
+class QueryErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = None
+    manifest_path: str | None = None
+    index_manifest_path: str | None = None
+
+
 class ManifestCommandStatus(BaseModel):
     command: CommandName
     status: CommandStatus
@@ -193,6 +261,16 @@ class EmbedResponse(CommandResponse):
     data: EmbedResponseData | EmbedErrorData | EmptyResponseData
 
 
+class IndexResponse(CommandResponse):
+    command: Literal[CommandName.INDEX]
+    data: IndexResponseData | IndexErrorData | EmptyResponseData
+
+
+class QueryResponse(CommandResponse):
+    command: Literal[CommandName.QUERY]
+    data: QueryResponseData | QueryErrorData | EmptyResponseData
+
+
 class InspectResponse(CommandResponse):
     command: Literal[CommandName.INSPECT]
     data: InspectResponseData
@@ -222,8 +300,8 @@ COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INGEST: IngestResponse,
     CommandName.CHUNK: ChunkResponse,
     CommandName.EMBED: EmbedResponse,
-    CommandName.INDEX: CommandResponse,
-    CommandName.QUERY: CommandResponse,
+    CommandName.INDEX: IndexResponse,
+    CommandName.QUERY: QueryResponse,
     CommandName.INSPECT: InspectResponse,
 }
 
