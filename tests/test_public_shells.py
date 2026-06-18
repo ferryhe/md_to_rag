@@ -14,8 +14,10 @@ from md_to_rag.schemas import (
     CommandResponse,
     CommandStatus,
     EmbedResponse,
+    IndexResponse,
     InitResponse,
     InspectResponse,
+    QueryResponse,
 )
 
 
@@ -37,18 +39,22 @@ def test_dependency_bounds_match_public_shell_requirements() -> None:
     assert "typer>=0.16,<1" in dependencies
 
 
-def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
+def test_api_facade_functions_return_owned_responses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     project = tmp_path / "project"
     api.init(project)
     (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
     api.ingest(source=project / "source")
     api.chunk(manifest=project / "documents" / "documents.jsonl")
+    monkeypatch.chdir(project)
     calls = {
         "init": lambda: api.init(project),
         "ingest": lambda: api.ingest(source=project / "source"),
         "chunk": lambda: api.chunk(manifest=project / "documents" / "documents.jsonl"),
         "embed": lambda: api.embed(chunks=project / "chunks" / "chunks.jsonl"),
-        "index": lambda: api.index(embeddings="embeddings.jsonl"),
+        "index": lambda: api.index(embeddings=project / "embeddings" / "embeddings.jsonl"),
         "query": lambda: api.query("What is indexed?"),
         "inspect": lambda: api.inspect(artifact=project),
     }
@@ -58,10 +64,7 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
         response = call()
         assert isinstance(response, CommandResponse)
         assert response.__class__.__module__.startswith("md_to_rag.")
-        if command in {"init", "ingest", "chunk", "embed", "inspect"}:
-            assert response.status is CommandStatus.OK
-        else:
-            assert response.status is CommandStatus.NOT_IMPLEMENTED
+        assert response.status is CommandStatus.OK
         assert "raganything" not in response.model_dump_json().lower()
 
 
@@ -440,12 +443,16 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     assert output_titles[CommandName.INGEST] == "IngestResponse"
     assert output_titles[CommandName.CHUNK] == "ChunkResponse"
     assert output_titles[CommandName.EMBED] == "EmbedResponse"
+    assert output_titles[CommandName.INDEX] == "IndexResponse"
+    assert output_titles[CommandName.QUERY] == "QueryResponse"
     assert output_titles[CommandName.INSPECT] == "InspectResponse"
     for command in set(CommandName) - {
         CommandName.INIT,
         CommandName.INGEST,
         CommandName.CHUNK,
         CommandName.EMBED,
+        CommandName.INDEX,
+        CommandName.QUERY,
         CommandName.INSPECT,
     }:
         assert output_titles[command] == "CommandResponse"
@@ -507,6 +514,25 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
         "EmbedResponseData",
         "EmptyResponseData",
     }
+    index_tool = next(tool for tool in tools if tool.command is CommandName.INDEX)
+    assert set(index_tool.output_schema["required"]) >= {
+        "command",
+        "status",
+        "message",
+        "data",
+    }
+    index_data_options = index_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in index_data_options} == {
+        "EmptyResponseData",
+        "IndexErrorData",
+        "IndexResponseData",
+    }
+    query_data_options = query_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in query_data_options} == {
+        "EmptyResponseData",
+        "QueryErrorData",
+        "QueryResponseData",
+    }
 
 
 def test_md_to_rag_help_surface() -> None:
@@ -525,7 +551,7 @@ def test_every_command_help_surface_includes_json_option() -> None:
         assert "--json" in result.output
 
 
-def test_json_skeleton_output_is_stable_and_backend_neutral() -> None:
+def test_query_missing_manifest_json_output_is_stable_and_backend_neutral() -> None:
     args = ["query", "What artifacts exist?", "--json"]
 
     first = runner.invoke(app, args, prog_name="md-to-rag")
@@ -536,7 +562,8 @@ def test_json_skeleton_output_is_stable_and_backend_neutral() -> None:
 
     payload = json.loads(first.output)
     assert payload["command"] == "query"
-    assert payload["status"] == "not_implemented"
+    assert payload["status"] == "missing_artifact"
+    assert payload["error"]["code"] == "manifest_not_found"
     assert payload["message"]
     assert "raganything" not in first.output.lower()
 
@@ -562,7 +589,7 @@ def test_embed_json_output_uses_real_response_when_chunks_exist(tmp_path: Path) 
     assert "raganything" not in result.output.lower()
 
 
-def test_index_query_keep_json_skeleton_behavior() -> None:
+def test_index_query_missing_manifest_json_is_backend_neutral() -> None:
     command_args = {
         "index": ["index", "--json"],
         "query": ["query", "What artifacts exist?", "--json"],
@@ -577,7 +604,8 @@ def test_index_query_keep_json_skeleton_behavior() -> None:
         assert result.exit_code == 0
         payload = json.loads(result.output)
         assert payload["command"] == command
-        assert payload["status"] == "not_implemented"
+        assert payload["status"] == "missing_artifact"
+        assert payload["error"]["code"] == "manifest_not_found"
         assert "raganything" not in result.output.lower()
 
 
@@ -585,6 +613,24 @@ def test_embed_response_rejects_unowned_payload_shape() -> None:
     with pytest.raises(ValidationError):
         EmbedResponse(
             command=CommandName.EMBED,
+            status=CommandStatus.OK,
+            message="bad payload",
+            data={"backend_object": object()},
+        )
+
+
+def test_index_query_responses_reject_unowned_payload_shapes() -> None:
+    with pytest.raises(ValidationError):
+        IndexResponse(
+            command=CommandName.INDEX,
+            status=CommandStatus.OK,
+            message="bad payload",
+            data={"backend_object": object()},
+        )
+
+    with pytest.raises(ValidationError):
+        QueryResponse(
+            command=CommandName.QUERY,
             status=CommandStatus.OK,
             message="bad payload",
             data={"backend_object": object()},

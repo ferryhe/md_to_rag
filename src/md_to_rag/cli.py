@@ -11,7 +11,7 @@ from .schemas import CommandResponse
 
 app = typer.Typer(
     name="md-to-rag",
-    help="Create and inspect Markdown-to-RAG artifact shells.",
+    help="Create and inspect Markdown-to-RAG artifacts.",
     no_args_is_help=True,
 )
 
@@ -82,7 +82,7 @@ def query_command(
     question: str = typer.Argument(..., help="Query text."),
     json_output: bool = typer.Option(False, "--json", help="Emit a stable JSON response."),
 ) -> None:
-    """Return a typed query response shell."""
+    """Return deterministic local retrieval results."""
 
     _emit(api.query(question), json_output)
 

@@ -4,19 +4,21 @@ from pathlib import Path
 
 from .chunk import chunk_project
 from .embed import embed_project
+from .index import index_project
 from .ingest import ingest_project
 from .manifest import ManifestError, initialize_project, inspect_project
+from .query import query_project
 from .schemas import (
     ChunkResponse,
     CommandName,
-    CommandResponse,
     CommandStatus,
     EmptyResponseData,
     EmbedResponse,
+    IndexResponse,
     InitResponse,
     IngestResponse,
     InspectResponse,
-    skeleton_response,
+    QueryResponse,
 )
 
 
@@ -77,13 +79,28 @@ def embed(chunks: str | Path | None = None) -> EmbedResponse:
     )
 
 
-def index(embeddings: str | Path | None = None) -> CommandResponse:
-    data = {"embeddings": str(embeddings)} if embeddings is not None else {}
-    return skeleton_response(CommandName.INDEX, data=data)
+def index(embeddings: str | Path | None = None) -> IndexResponse:
+    result = index_project(embeddings)
+    return IndexResponse(
+        command=CommandName.INDEX,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
 
 
-def query(question: str) -> CommandResponse:
-    return skeleton_response(CommandName.QUERY, data={"question": question})
+def query(question: str) -> QueryResponse:
+    result = query_project(question)
+    return QueryResponse(
+        command=CommandName.QUERY,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
 
 
 def inspect(artifact: str | Path | None = None) -> InspectResponse:
