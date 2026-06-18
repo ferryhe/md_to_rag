@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .chunk import chunk_project
+from .embed import embed_project
 from .ingest import ingest_project
 from .manifest import ManifestError, initialize_project, inspect_project
 from .schemas import (
@@ -11,6 +12,7 @@ from .schemas import (
     CommandResponse,
     CommandStatus,
     EmptyResponseData,
+    EmbedResponse,
     InitResponse,
     IngestResponse,
     InspectResponse,
@@ -63,9 +65,16 @@ def chunk(manifest: str | Path | None = None) -> ChunkResponse:
     )
 
 
-def embed(chunks: str | Path | None = None) -> CommandResponse:
-    data = {"chunks": str(chunks)} if chunks is not None else {}
-    return skeleton_response(CommandName.EMBED, data=data)
+def embed(chunks: str | Path | None = None) -> EmbedResponse:
+    result = embed_project(chunks)
+    return EmbedResponse(
+        command=CommandName.EMBED,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
 
 
 def index(embeddings: str | Path | None = None) -> CommandResponse:
