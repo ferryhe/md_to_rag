@@ -97,6 +97,29 @@ class ChunkErrorData(BaseModel):
     documents_path: str | None = None
 
 
+class EmbedResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str
+    manifest_path: str
+    chunks_path: str
+    changed: bool
+    chunk_count: int
+    embedding_count: int
+    embeddings_path: str
+    chunks_hash: str
+    embeddings_hash: str
+    profile: dict[str, JsonValue]
+
+
+class EmbedErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = None
+    manifest_path: str | None = None
+    chunks_path: str | None = None
+
+
 class ManifestCommandStatus(BaseModel):
     command: CommandName
     status: CommandStatus
@@ -165,6 +188,11 @@ class ChunkResponse(CommandResponse):
     data: ChunkResponseData | ChunkErrorData | EmptyResponseData
 
 
+class EmbedResponse(CommandResponse):
+    command: Literal[CommandName.EMBED]
+    data: EmbedResponseData | EmbedErrorData | EmptyResponseData
+
+
 class InspectResponse(CommandResponse):
     command: Literal[CommandName.INSPECT]
     data: InspectResponseData
@@ -193,7 +221,7 @@ COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INIT: InitResponse,
     CommandName.INGEST: IngestResponse,
     CommandName.CHUNK: ChunkResponse,
-    CommandName.EMBED: CommandResponse,
+    CommandName.EMBED: EmbedResponse,
     CommandName.INDEX: CommandResponse,
     CommandName.QUERY: CommandResponse,
     CommandName.INSPECT: InspectResponse,

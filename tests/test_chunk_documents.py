@@ -764,9 +764,8 @@ def test_chunk_splits_single_lines_that_exceed_chunk_limit(tmp_path: Path) -> No
     assert [(row["line_start"], row["line_end"]) for row in rows] == [(1, 1), (1, 1)]
 
 
-def test_embed_index_query_remain_typed_skeletons() -> None:
+def test_index_query_remain_typed_skeletons() -> None:
     responses = [
-        api.embed(chunks="chunks/chunks.jsonl"),
         api.index(embeddings="embeddings/embeddings.jsonl"),
         api.query("What is indexed?"),
     ]

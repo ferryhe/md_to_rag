@@ -13,6 +13,7 @@ from md_to_rag.schemas import (
     CommandName,
     CommandResponse,
     CommandStatus,
+    EmbedResponse,
     InitResponse,
     InspectResponse,
 )
@@ -41,11 +42,12 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
     api.init(project)
     (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
     api.ingest(source=project / "source")
+    api.chunk(manifest=project / "documents" / "documents.jsonl")
     calls = {
         "init": lambda: api.init(project),
         "ingest": lambda: api.ingest(source=project / "source"),
         "chunk": lambda: api.chunk(manifest=project / "documents" / "documents.jsonl"),
-        "embed": lambda: api.embed(chunks="chunks.jsonl"),
+        "embed": lambda: api.embed(chunks=project / "chunks" / "chunks.jsonl"),
         "index": lambda: api.index(embeddings="embeddings.jsonl"),
         "query": lambda: api.query("What is indexed?"),
         "inspect": lambda: api.inspect(artifact=project),
@@ -56,7 +58,7 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
         response = call()
         assert isinstance(response, CommandResponse)
         assert response.__class__.__module__.startswith("md_to_rag.")
-        if command in {"init", "ingest", "chunk", "inspect"}:
+        if command in {"init", "ingest", "chunk", "embed", "inspect"}:
             assert response.status is CommandStatus.OK
         else:
             assert response.status is CommandStatus.NOT_IMPLEMENTED
@@ -437,11 +439,13 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     assert output_titles[CommandName.INIT] == "InitResponse"
     assert output_titles[CommandName.INGEST] == "IngestResponse"
     assert output_titles[CommandName.CHUNK] == "ChunkResponse"
+    assert output_titles[CommandName.EMBED] == "EmbedResponse"
     assert output_titles[CommandName.INSPECT] == "InspectResponse"
     for command in set(CommandName) - {
         CommandName.INIT,
         CommandName.INGEST,
         CommandName.CHUNK,
+        CommandName.EMBED,
         CommandName.INSPECT,
     }:
         assert output_titles[command] == "CommandResponse"
@@ -490,6 +494,19 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
         "ChunkResponseData",
         "EmptyResponseData",
     }
+    embed_tool = next(tool for tool in tools if tool.command is CommandName.EMBED)
+    assert set(embed_tool.output_schema["required"]) >= {
+        "command",
+        "status",
+        "message",
+        "data",
+    }
+    embed_data_options = embed_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in embed_data_options} == {
+        "EmbedErrorData",
+        "EmbedResponseData",
+        "EmptyResponseData",
+    }
 
 
 def test_md_to_rag_help_surface() -> None:
@@ -524,15 +541,34 @@ def test_json_skeleton_output_is_stable_and_backend_neutral() -> None:
     assert "raganything" not in first.output.lower()
 
 
-def test_embed_index_query_keep_json_skeleton_behavior() -> None:
+def test_embed_json_output_uses_real_response_when_chunks_exist(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n\nBody.\n", encoding="utf-8")
+    assert api.ingest(source=project / "source").status is CommandStatus.OK
+    assert api.chunk(manifest=project / "documents" / "documents.jsonl").status is CommandStatus.OK
+
+    result = runner.invoke(
+        app,
+        ["embed", "--chunks", str(project / "chunks" / "chunks.jsonl"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["command"] == "embed"
+    assert payload["status"] == "ok"
+    assert payload["data"]["embeddings_path"] == "embeddings/embeddings.jsonl"
+    assert "raganything" not in result.output.lower()
+
+
+def test_index_query_keep_json_skeleton_behavior() -> None:
     command_args = {
-        "embed": ["embed", "--json"],
         "index": ["index", "--json"],
         "query": ["query", "What artifacts exist?", "--json"],
     }
 
     assert set(command_args) == {
-        "embed",
         "index",
         "query",
     }
@@ -543,6 +579,16 @@ def test_embed_index_query_keep_json_skeleton_behavior() -> None:
         assert payload["command"] == command
         assert payload["status"] == "not_implemented"
         assert "raganything" not in result.output.lower()
+
+
+def test_embed_response_rejects_unowned_payload_shape() -> None:
+    with pytest.raises(ValidationError):
+        EmbedResponse(
+            command=CommandName.EMBED,
+            status=CommandStatus.OK,
+            message="bad payload",
+            data={"backend_object": object()},
+        )
 
 
 def test_public_response_data_is_json_compatible() -> None:
