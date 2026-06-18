@@ -79,6 +79,24 @@ class IngestErrorData(BaseModel):
     source_path: str | None = None
 
 
+class ChunkResponseData(BaseModel):
+    project_root: str
+    manifest_path: str
+    documents_path: str
+    changed: bool
+    document_count: int
+    chunk_count: int
+    chunks_path: str
+    documents_hash: str
+    chunks_hash: str
+
+
+class ChunkErrorData(BaseModel):
+    project_root: str | None = None
+    manifest_path: str | None = None
+    documents_path: str | None = None
+
+
 class ManifestCommandStatus(BaseModel):
     command: CommandName
     status: CommandStatus
@@ -142,6 +160,11 @@ class IngestResponse(CommandResponse):
     data: IngestResponseData | IngestErrorData | EmptyResponseData
 
 
+class ChunkResponse(CommandResponse):
+    command: Literal[CommandName.CHUNK]
+    data: ChunkResponseData | ChunkErrorData | EmptyResponseData
+
+
 class InspectResponse(CommandResponse):
     command: Literal[CommandName.INSPECT]
     data: InspectResponseData
@@ -169,7 +192,7 @@ COMMAND_INPUT_MODELS: dict[CommandName, type[BaseModel]] = {
 COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INIT: InitResponse,
     CommandName.INGEST: IngestResponse,
-    CommandName.CHUNK: CommandResponse,
+    CommandName.CHUNK: ChunkResponse,
     CommandName.EMBED: CommandResponse,
     CommandName.INDEX: CommandResponse,
     CommandName.QUERY: CommandResponse,

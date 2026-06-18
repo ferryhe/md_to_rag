@@ -40,10 +40,11 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
     project = tmp_path / "project"
     api.init(project)
     (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    api.ingest(source=project / "source")
     calls = {
         "init": lambda: api.init(project),
         "ingest": lambda: api.ingest(source=project / "source"),
-        "chunk": lambda: api.chunk(manifest="documents.jsonl"),
+        "chunk": lambda: api.chunk(manifest=project / "documents" / "documents.jsonl"),
         "embed": lambda: api.embed(chunks="chunks.jsonl"),
         "index": lambda: api.index(embeddings="embeddings.jsonl"),
         "query": lambda: api.query("What is indexed?"),
@@ -55,7 +56,7 @@ def test_api_facade_functions_return_owned_responses(tmp_path: Path) -> None:
         response = call()
         assert isinstance(response, CommandResponse)
         assert response.__class__.__module__.startswith("md_to_rag.")
-        if command in {"init", "ingest", "inspect"}:
+        if command in {"init", "ingest", "chunk", "inspect"}:
             assert response.status is CommandStatus.OK
         else:
             assert response.status is CommandStatus.NOT_IMPLEMENTED
@@ -435,10 +436,12 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     output_titles = {tool.command: tool.output_schema["title"] for tool in tools}
     assert output_titles[CommandName.INIT] == "InitResponse"
     assert output_titles[CommandName.INGEST] == "IngestResponse"
+    assert output_titles[CommandName.CHUNK] == "ChunkResponse"
     assert output_titles[CommandName.INSPECT] == "InspectResponse"
     for command in set(CommandName) - {
         CommandName.INIT,
         CommandName.INGEST,
+        CommandName.CHUNK,
         CommandName.INSPECT,
     }:
         assert output_titles[command] == "CommandResponse"
@@ -474,6 +477,19 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
         "IngestErrorData",
         "IngestResponseData",
     }
+    chunk_tool = next(tool for tool in tools if tool.command is CommandName.CHUNK)
+    assert set(chunk_tool.output_schema["required"]) >= {
+        "command",
+        "status",
+        "message",
+        "data",
+    }
+    chunk_data_options = chunk_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in chunk_data_options} == {
+        "ChunkErrorData",
+        "ChunkResponseData",
+        "EmptyResponseData",
+    }
 
 
 def test_md_to_rag_help_surface() -> None:
@@ -508,16 +524,14 @@ def test_json_skeleton_output_is_stable_and_backend_neutral() -> None:
     assert "raganything" not in first.output.lower()
 
 
-def test_commands_outside_pr4_keep_json_skeleton_behavior() -> None:
+def test_embed_index_query_keep_json_skeleton_behavior() -> None:
     command_args = {
-        "chunk": ["chunk", "--json"],
         "embed": ["embed", "--json"],
         "index": ["index", "--json"],
         "query": ["query", "What artifacts exist?", "--json"],
     }
 
     assert set(command_args) == {
-        "chunk",
         "embed",
         "index",
         "query",

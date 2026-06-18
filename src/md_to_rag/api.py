@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .chunk import chunk_project
 from .ingest import ingest_project
 from .manifest import ManifestError, initialize_project, inspect_project
 from .schemas import (
+    ChunkResponse,
     CommandName,
     CommandResponse,
     CommandStatus,
@@ -49,9 +51,16 @@ def ingest(source: str | Path | None = None) -> IngestResponse:
     )
 
 
-def chunk(manifest: str | Path | None = None) -> CommandResponse:
-    data = {"manifest": str(manifest)} if manifest is not None else {}
-    return skeleton_response(CommandName.CHUNK, data=data)
+def chunk(manifest: str | Path | None = None) -> ChunkResponse:
+    result = chunk_project(manifest)
+    return ChunkResponse(
+        command=CommandName.CHUNK,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
 
 
 def embed(chunks: str | Path | None = None) -> CommandResponse:

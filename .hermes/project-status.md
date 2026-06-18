@@ -5,10 +5,10 @@ Last updated: 2026-06-18
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/ingest-hardening-followup`
-- Active PR lane: PR4a open as #7; Copilot comments addressed locally, follow-up verification passed
+- Active branch: `codex/chunk-documents`
+- Active PR lane: PR5 local implementation complete; validation and Pre-PR Codex Review Gate passed, ready to publish
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: Real `ingest` behavior only; `chunk`, `embed`, `index`, and `query` remain typed skeletons
+- Current task: PR5 `chunk` implementation; preserve current CLI/API/MCP contracts and merged `ingest` behavior
 
 ## Current Contract Decisions
 
@@ -29,8 +29,8 @@ Last updated: 2026-06-18
 | PR2 | `codex/package-interface-shells` | Merged (#4) | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
 | PR3 | `codex/manifest-init-inspect` | Merged (#5) | Real `init` and `inspect`. |
 | PR4 | `codex/ingest-documents` | Merged (#6) | `ingest`. |
-| PR4a | `codex/ingest-hardening-followup` | Open (#7); Copilot comments addressed locally and verified | `ingest` hardening for portable paths and artifact write boundaries. |
-| PR5 | TBD | Queued | `chunk`. |
+| PR4a | `codex/ingest-hardening-followup` | Merged (#7) | `ingest` hardening for portable paths and artifact write boundaries. |
+| PR5 | `codex/chunk-documents` | Ready to publish | `chunk`. |
 | PR6 | TBD | Queued | `embed` and cache/profile behavior. |
 | PR7 | TBD | Queued | Native `index` and `query`. |
 | PR8 | TBD | Queued | Compatible `diff` and `rebuild`. |
@@ -154,4 +154,11 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Passed: PR #7 Copilot/review follow-up validation with `python -m pytest tests/test_ingest_documents.py` (32 passed, 11 skipped), `python -m pytest` (53 passed, 11 skipped), CLI smoke, `git diff --check`, and Pre-PR Codex Review Gate.
 - Resolved PR4a local Codex review finding: directory ingest now checks linked directory entries before Markdown file filtering, so POSIX directory symlinks into nested initialized projects return typed errors instead of producing incomplete parent artifacts.
 - Resolved PR4a local Codex review findings: directory ingest now walks with linked-directory pruning before recursion, and Windows reserved basenames include `CONIN$` and `CONOUT$`.
-- Required next: push the Copilot fixes, then recheck PR #7 for remote feedback.
+- Resolved PR #7 Copilot review threads remotely after the follow-up push; both threads became outdated and were marked resolved.
+- Merged: PR #7 squash-merged to `main` at `433aee2` after validation, review gate, and remote comment resolution.
+- Cleanup: remote task branch `codex/ingest-hardening-followup` was deleted by GitHub merge cleanup; stale remote-tracking refs were pruned, and the old local `codex/ingest-documents` branch from PR #6 was deleted.
+- PR5 scope: real `chunk` reads `documents/documents.jsonl`, emits deterministic portable `chunks/chunks.jsonl`, updates `chunk` manifest status, and leaves `embed`, `index`, and `query` as typed skeletons.
+- PR5 local review fixes: rejects `chunks/chunks.jsonl` as input, validates document row integrity including content hashes and duplicate IDs, rejects unpaired-surrogate document strings without crashing, accepts empty ingested documents, rejects non-portable document `source_path` and custom `documents_path` values, rejects linked document artifacts resolving into nested initialized projects, recognizes ATX and setext Markdown headings, ignores Markdown headings inside fenced code blocks, rejects backtick fence openers whose info strings contain backticks, preserves blank lines in fenced code chunks, treats adjacent Markdown headings as block boundaries, tracks fence length for nested fence examples, splits oversized fenced code chunks within the chunk limit, preserves source text for oversized unclosed fences without synthetic closers, keeps split fence line ranges traceable, only treats valid ATX headings as heading boundaries, does not close fences on info-string lines, and ignores fences indented as code blocks.
+- Passed: PR5 focused validation with `python -m pytest tests/test_chunk_documents.py` (29 passed), `python -m pytest tests/test_public_shells.py` (21 passed), `python -m pytest` (82 passed, 11 skipped), CLI init/ingest/chunk smoke including idempotent chunk rerun, command help checks, and `git diff --check` with CRLF warnings only.
+- Passed: PR5 Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`, and `npx.ps1` is blocked by PowerShell execution policy.
+- Required next: commit, push, open PR #8 candidate, then check GitHub checks and remote review/Copilot comments.
