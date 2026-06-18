@@ -1,8 +1,11 @@
 import json
+import os
+import subprocess
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from md_to_rag import api
@@ -29,6 +32,31 @@ def _assert_relative_path(value: str) -> None:
     assert value == Path(value).as_posix()
     assert not Path(value).is_absolute()
     assert ".." not in Path(value).parts
+
+
+def _link_directory_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except (NotImplementedError, OSError) as symlink_error:
+        if os.name != "nt":
+            pytest.skip(f"symlink creation unavailable: {symlink_error}")
+    link_text = str(link).replace("'", "''")
+    target_text = str(target).replace("'", "''")
+    try:
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"New-Item -ItemType Junction -Path '{link_text}' -Target '{target_text}' | Out-Null",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as junction_error:
+        pytest.skip(f"directory link creation unavailable: {junction_error}")
 
 
 def test_ingest_markdown_source_directory_is_idempotent_and_portable(
@@ -106,6 +134,26 @@ def test_ingest_markdown_source_directory_is_idempotent_and_portable(
     assert documents_path.read_bytes() == first_document_bytes
     assert (project / "corpus_manifest.json").read_bytes() == first_project_manifest_bytes
     assert _jsonl(documents_path)[0]["doc_id"] == intro_doc["doc_id"]
+
+
+def test_ingest_preserves_direct_markdown_paths_with_leading_space(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    markdown_path = project / " doc.md"
+    markdown_path.write_text("# Spaced\n", encoding="utf-8")
+
+    response = api.ingest(source=markdown_path)
+
+    assert response.status is CommandStatus.OK
+    assert response.data.source_path == " doc.md"
+    source_rows = _jsonl(project / "source" / "source_manifest.jsonl")
+    document_rows = _jsonl(project / "documents" / "documents.jsonl")
+    assert source_rows[0]["source_path"] == " doc.md"
+    assert source_rows[0]["provenance"]["source_path"] == " doc.md"
+    assert document_rows[0]["source_path"] == " doc.md"
+    assert document_rows[0]["provenance"]["source_path"] == " doc.md"
 
 
 def test_ingest_repairs_stale_manifest_status_without_rewriting_artifacts(
@@ -261,6 +309,36 @@ def test_ingest_doc_to_md_rows_have_unique_document_ids(tmp_path: Path) -> None:
     assert len({row["doc_id"] for row in document_rows}) == 2
     assert len({row["source_id"] for row in source_rows}) == 2
     assert {row["content_hash"] for row in document_rows} == {_sha256_text(markdown_text)}
+
+
+def test_ingest_doc_to_md_duplicate_markdown_rows_sort_by_identity(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    markdown_path = project / "source" / "converted.md"
+    markdown_path.write_text("# Converted\n", encoding="utf-8")
+    manifest_path = project / "source" / "doc_to_md.jsonl"
+    manifest_path.write_text(
+        "\n".join(
+            json.dumps(row, sort_keys=True)
+            for row in (
+                {"markdown_path": "source/converted.md", "source_path": "raw/b.pdf"},
+                {"markdown_path": "source/converted.md", "source_path": "raw/a.pdf"},
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = api.ingest(source=manifest_path)
+
+    assert response.status is CommandStatus.OK
+    document_rows = _jsonl(project / "documents" / "documents.jsonl")
+    assert [row["provenance"]["source_path"] for row in document_rows] == [
+        "raw/a.pdf",
+        "raw/b.pdf",
+    ]
 
 
 def test_ingest_rejects_duplicate_doc_to_md_identities(tmp_path: Path) -> None:
@@ -454,12 +532,35 @@ def test_ingest_missing_project_and_source_are_typed_json_errors(tmp_path: Path)
     assert "traceback" not in missing_source.output.lower()
 
 
+def test_ingest_dotdot_source_uses_nearest_initialized_project(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    nested = parent / "nested"
+    other = parent / "other"
+    api.init(parent)
+    api.init(nested)
+    other.mkdir()
+    (nested / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+
+    response = api.ingest(source=other / ".." / "nested" / "source")
+
+    assert response.status is CommandStatus.OK
+    assert response.data.project_root == str(nested.resolve())
+    assert (nested / "documents" / "documents.jsonl").exists()
+    assert not (parent / "documents" / "documents.jsonl").exists()
+
+
 def test_ingest_rejects_nonportable_manifest_upstream_paths(tmp_path: Path) -> None:
     for upstream_path in (
         "/raw/report.pdf",
         "C:raw/report.pdf",
         "C:/raw/report.pdf",
         "C://raw/report.pdf",
+        "http://[",
+        "http:/example.com/a.pdf",
+        "https:\\example.com\\a.pdf",
+        "raw/bad\0report.pdf",
+        "raw/report?.pdf",
+        "raw/report.pdf:ads",
         "../raw/report.pdf",
     ):
         project = tmp_path / f"project-{sha256(upstream_path.encode()).hexdigest()[:8]}"
@@ -495,12 +596,51 @@ def test_ingest_rejects_nonportable_manifest_upstream_paths(tmp_path: Path) -> N
         assert "traceback" not in result.output.lower()
 
 
+def test_ingest_rejects_non_finite_manifest_values(tmp_path: Path) -> None:
+    for field, value in {
+        "metadata": '{"score":NaN}',
+        "document_id": "1e999",
+    }.items():
+        project = tmp_path / f"project-{field}"
+        api.init(project)
+        markdown_path = project / "source" / "converted.md"
+        markdown_path.write_text("# Converted\n", encoding="utf-8")
+        manifest_path = project / "source" / "doc_to_md.json"
+        manifest_path.write_text(
+            (
+                '{"documents":[{"markdown_path":"source/converted.md",'
+                f'"{field}":{value}'
+                "}]}",
+            )[0],
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(manifest_path), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "source_manifest_invalid"
+        assert not (project / "documents" / "documents.jsonl").exists()
+        assert "traceback" not in result.output.lower()
+
+
 def test_ingest_rejects_unsafe_manifest_markdown_targets(tmp_path: Path) -> None:
     unsafe_paths = {
         "/source/doc.md": "manifest_path_not_portable",
         "C:source/doc.md": "manifest_path_not_portable",
         "C:/source/doc.md": "manifest_path_not_portable",
         "source/../.env": "manifest_path_not_portable",
+        "source/bad\0doc.md": "manifest_path_not_portable",
+        "source/doc.md:secret.md": "manifest_path_not_portable",
+        "source/doc?.md": "manifest_path_not_portable",
+        "source/CON.md": "manifest_path_not_portable",
+        "source/trailing. /doc.md": "manifest_path_not_portable",
+        "source/bad\u001fdoc.md": "manifest_path_not_portable",
         "source/source_manifest.jsonl": "source_artifact_collision",
         "documents/documents.jsonl": "source_artifact_collision",
         "source/not-markdown.txt": "unsupported_source",
@@ -515,6 +655,41 @@ def test_ingest_rejects_unsafe_manifest_markdown_targets(tmp_path: Path) -> None
                 {"documents": [{"markdown_path": markdown_path}]},
                 sort_keys=True,
             ),
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(manifest_path), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == expected_code
+        assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_manifest_markdown_symlink_targets_after_resolution(
+    tmp_path: Path,
+) -> None:
+    for target_relative, expected_code in {
+        Path("source") / "notes.txt": "unsupported_source",
+        Path("source") / "source_manifest.jsonl": "source_artifact_collision",
+    }.items():
+        project = tmp_path / f"project-{target_relative.name.replace('.', '-')}"
+        api.init(project)
+        target = project / target_relative
+        target.write_text("not markdown\n", encoding="utf-8")
+        link = project / "source" / "link.md"
+        try:
+            link.symlink_to(target)
+        except (NotImplementedError, OSError) as error:
+            pytest.skip(f"symlink creation unavailable: {error}")
+        manifest_path = project / "source" / "doc_to_md.jsonl"
+        manifest_path.write_text(
+            json.dumps({"markdown_path": "source/link.md"}, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 
@@ -562,6 +737,534 @@ def test_ingest_directory_sorting_returns_typed_error_for_outside_resolved_paths
     payload = json.loads(result.output)
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "source_outside_project"
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_nonportable_direct_markdown_paths(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from md_to_rag import ingest as ingest_module
+
+    for fake_source_path in ("source/doc?.md", r"source/a\b.md"):
+        project = tmp_path / f"project-{sha256(fake_source_path.encode()).hexdigest()[:8]}"
+        api.init(project)
+        markdown_path = project / "source" / "good.md"
+        markdown_path.write_text("# Good\n", encoding="utf-8")
+        original_relative_to_project = ingest_module._relative_to_project
+
+        def fake_relative_to_project(path: Path, project_root: Path):
+            if path == markdown_path.resolve():
+                return fake_source_path
+            return original_relative_to_project(path, project_root)
+
+        monkeypatch.setattr(ingest_module, "_relative_to_project", fake_relative_to_project)
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(project / "source"), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "manifest_path_not_portable"
+        assert "traceback" not in result.output.lower()
+        monkeypatch.undo()
+
+
+def test_ingest_rejects_nonportable_manifest_provenance_path(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from md_to_rag import ingest as ingest_module
+
+    project = tmp_path / "project"
+    api.init(project)
+    markdown_path = project / "source" / "converted.md"
+    markdown_path.write_text("# Converted\n", encoding="utf-8")
+    manifest_path = project / "source" / "doc_to_md.jsonl"
+    manifest_path.write_text(
+        json.dumps({"markdown_path": "source/converted.md"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    original_relative_to_project = ingest_module._relative_to_project
+
+    def fake_relative_to_project(path: Path, project_root: Path):
+        if path == manifest_path.resolve():
+            return "source/bad?.jsonl"
+        return original_relative_to_project(path, project_root)
+
+    monkeypatch.setattr(ingest_module, "_relative_to_project", fake_relative_to_project)
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(manifest_path), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "manifest_path_not_portable"
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_explicit_symlink_source_outside_lexical_project(
+    tmp_path: Path,
+) -> None:
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    api.init(project_a)
+    api.init(project_b)
+    target = project_b / "source" / "doc.md"
+    target.write_text("# B\n", encoding="utf-8")
+    link = project_a / "source" / "link.md"
+    try:
+        link.symlink_to(target)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    for source in (link, link / "source" / "doc.md"):
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(source), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "source_outside_project"
+        assert not (project_a / "documents" / "documents.jsonl").exists()
+        assert not (project_b / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_returns_typed_error_for_unresolvable_source_path(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    loop = project / "source" / "loop.md"
+    try:
+        loop.symlink_to(loop)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(loop), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_path_unresolvable"
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_directory_rejects_markdown_symlink_to_non_markdown_target(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    target = project / "source" / "notes.txt"
+    target.write_text("not markdown\n", encoding="utf-8")
+    link = project / "source" / "link.md"
+    try:
+        link.symlink_to(target)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "unsupported_source"
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_explicit_symlink_directory_outside_lexical_project(
+    tmp_path: Path,
+) -> None:
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    api.init(project_a)
+    api.init(project_b)
+    (project_b / "source" / "doc.md").write_text("# B\n", encoding="utf-8")
+    link = project_a / "source" / "linked-project-b"
+    try:
+        link.symlink_to(project_b, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    for source in (link, link / "source" / "doc.md"):
+        result = runner.invoke(
+            app,
+            ["ingest", "--source", str(source), "--json"],
+            prog_name="md-to-rag",
+        )
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["status"] == "error"
+        assert payload["error"]["code"] == "source_outside_project"
+        assert not (project_a / "documents" / "documents.jsonl").exists()
+        assert not (project_b / "documents" / "documents.jsonl").exists()
+        assert "traceback" not in result.output.lower()
+
+
+def test_ingest_allows_project_root_reached_through_symlink(tmp_path: Path) -> None:
+    real_project = tmp_path / "real-project"
+    linked_project = tmp_path / "linked-project"
+    real_project.mkdir()
+    try:
+        linked_project.symlink_to(real_project, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+    api.init(linked_project)
+    (linked_project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+
+    response = api.ingest(source=linked_project / "source")
+
+    assert response.status is CommandStatus.OK
+    assert response.data.document_count == 1
+    assert response.data.source_path == "source"
+    assert (real_project / "documents" / "documents.jsonl").exists()
+
+
+def test_ingest_allows_project_root_reached_through_multiple_links(
+    tmp_path: Path,
+) -> None:
+    real_workspace = tmp_path / "real-workspace"
+    real_project = tmp_path / "real-project"
+    linked_workspace = tmp_path / "linked-workspace"
+    real_workspace.mkdir()
+    real_project.mkdir()
+    _link_directory_or_skip(linked_workspace, real_workspace)
+    linked_project = linked_workspace / "linked-project"
+    _link_directory_or_skip(linked_project, real_project)
+    api.init(linked_project)
+    (linked_project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+
+    response = api.ingest(source=linked_project / "source")
+
+    assert response.status is CommandStatus.OK
+    assert response.data.project_root == str(real_project.resolve())
+    assert response.data.source_path == "source"
+    assert (real_project / "documents" / "documents.jsonl").exists()
+
+
+def test_ingest_uses_nested_project_manifest_under_symlinked_root(
+    tmp_path: Path,
+) -> None:
+    real_project = tmp_path / "real-project"
+    linked_project = tmp_path / "linked-project"
+    real_project.mkdir()
+    try:
+        linked_project.symlink_to(real_project, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+    api.init(linked_project)
+    nested_project = linked_project / "nested"
+    api.init(nested_project)
+    (nested_project / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+
+    response = api.ingest(source=nested_project / "source")
+
+    assert response.status is CommandStatus.OK
+    assert response.data.project_root == str((real_project / "nested").resolve())
+    assert response.data.source_path == "source"
+    assert (real_project / "nested" / "documents" / "documents.jsonl").exists()
+    assert not (real_project / "documents" / "documents.jsonl").exists()
+
+
+def test_ingest_rejects_linked_nested_project_under_parent(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    nested_project = parent / "nested"
+    api.init(parent)
+    api.init(nested_project)
+    (nested_project / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+    linked_nested = parent / "source" / "linked-nested"
+    _link_directory_or_skip(linked_nested, nested_project)
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(linked_nested / "source" / "doc.md"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_nested_project"
+    assert not (parent / "documents" / "documents.jsonl").exists()
+    assert not (nested_project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_nested_project_markdown_found_under_parent_source(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    nested_project = parent / "nested"
+    api.init(parent)
+    api.init(nested_project)
+    (nested_project / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+    linked_nested = parent / "source" / "linked-nested"
+    _link_directory_or_skip(linked_nested, nested_project)
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(parent / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_nested_project"
+    assert not (parent / "documents" / "documents.jsonl").exists()
+    assert not (nested_project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_manifest_rows_inside_nested_project(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    nested_project = parent / "nested"
+    api.init(parent)
+    api.init(nested_project)
+    (nested_project / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+    manifest_path = parent / "source" / "doc_to_md.jsonl"
+    manifest_path.write_text(
+        json.dumps({"markdown_path": "nested/source/doc.md"}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(manifest_path), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_nested_project"
+    assert not (parent / "documents" / "documents.jsonl").exists()
+    assert not (nested_project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_without_source_uses_lexical_project_from_linked_cwd(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from md_to_rag import ingest as ingest_module
+
+    parent = tmp_path / "parent"
+    target_project = tmp_path / "target-project"
+    api.init(parent)
+    api.init(target_project)
+    (target_project / "source" / "doc.md").write_text("# Target\n", encoding="utf-8")
+    linked_project = parent / "source" / "linked-target"
+    _link_directory_or_skip(linked_project, target_project)
+    monkeypatch.setattr(
+        ingest_module.Path,
+        "cwd",
+        staticmethod(lambda: linked_project / "source"),
+    )
+
+    response = api.ingest()
+
+    assert response.status is CommandStatus.ERROR
+    assert response.error.code == "source_outside_project"
+    assert not (parent / "documents" / "documents.jsonl").exists()
+    assert not (target_project / "documents" / "documents.jsonl").exists()
+
+
+def test_ingest_rejects_nested_symlink_project_inside_symlinked_root(
+    tmp_path: Path,
+) -> None:
+    real_project_a = tmp_path / "real-project-a"
+    linked_project_a = tmp_path / "linked-project-a"
+    project_b = tmp_path / "project-b"
+    real_project_a.mkdir()
+    try:
+        linked_project_a.symlink_to(real_project_a, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+    api.init(linked_project_a)
+    api.init(project_b)
+    (project_b / "source" / "doc.md").write_text("# B\n", encoding="utf-8")
+    nested_link = linked_project_a / "source" / "linked-project-b"
+    try:
+        nested_link.symlink_to(project_b, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(nested_link / "source" / "doc.md"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_outside_project"
+    assert not (real_project_a / "documents" / "documents.jsonl").exists()
+    assert not (project_b / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_output_artifact_paths_outside_project(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    outside = tmp_path / "outside-documents"
+    api.init(project)
+    outside.mkdir()
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    (project / "documents").rmdir()
+    try:
+        (project / "documents").symlink_to(outside, target_is_directory=True)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "artifact_path_outside_project"
+    assert not (outside / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_returns_typed_error_for_unresolvable_output_directory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from md_to_rag import ingest as ingest_module
+
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    documents_dir = project / "documents"
+    original_resolve = ingest_module.Path.resolve
+
+    def fake_resolve(path: Path, *args, **kwargs):
+        if path == documents_dir:
+            raise RuntimeError("simulated symlink loop")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(ingest_module.Path, "resolve", fake_resolve)
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "artifact_path_collision"
+    assert not (project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_symlinked_output_artifact_collisions(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    manifest_path = project / "corpus_manifest.json"
+    manifest_bytes = manifest_path.read_bytes()
+    output_path = project / "documents" / "documents.jsonl"
+    try:
+        output_path.symlink_to(manifest_path)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "artifact_path_collision"
+    assert manifest_path.read_bytes() == manifest_bytes
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_unresolvable_output_artifact_paths(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    output_path = project / "documents" / "documents.jsonl"
+    try:
+        output_path.symlink_to(output_path)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "artifact_path_collision"
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_hardlinked_output_artifact_collisions(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    manifest_path = project / "corpus_manifest.json"
+    manifest_bytes = manifest_path.read_bytes()
+    output_path = project / "documents" / "documents.jsonl"
+    try:
+        os.link(manifest_path, output_path)
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"hard link creation unavailable: {error}")
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "artifact_path_collision"
+    assert manifest_path.read_bytes() == manifest_bytes
     assert "traceback" not in result.output.lower()
 
 
