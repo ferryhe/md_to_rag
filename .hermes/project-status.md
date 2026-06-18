@@ -6,7 +6,7 @@ Last updated: 2026-06-18
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
 - Active branch: `codex/ingest-hardening-followup`
-- Active PR lane: PR4 follow-up hardening from latest `origin/main`; verification and review gate passed, publish pending
+- Active PR lane: PR4a open as #7; Copilot comments addressed locally, follow-up verification passed
 - Sibling repos: off-limits unless a future task explicitly names them
 - Current task: Real `ingest` behavior only; `chunk`, `embed`, `index`, and `query` remain typed skeletons
 
@@ -29,7 +29,7 @@ Last updated: 2026-06-18
 | PR2 | `codex/package-interface-shells` | Merged (#4) | Python package and CLI/API/MCP skeleton with owned schemas and tests. |
 | PR3 | `codex/manifest-init-inspect` | Merged (#5) | Real `init` and `inspect`. |
 | PR4 | `codex/ingest-documents` | Merged (#6) | `ingest`. |
-| PR4a | `codex/ingest-hardening-followup` | Local follow-up; ready to publish | `ingest` hardening for portable paths and artifact write boundaries. |
+| PR4a | `codex/ingest-hardening-followup` | Open (#7); Copilot comments addressed locally and verified | `ingest` hardening for portable paths and artifact write boundaries. |
 | PR5 | TBD | Queued | `chunk`. |
 | PR6 | TBD | Queued | `embed` and cache/profile behavior. |
 | PR7 | TBD | Queued | Native `index` and `query`. |
@@ -149,4 +149,9 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Resolved PR4a local Codex review finding: direct filesystem Markdown paths with leading whitespace are preserved in source/document provenance instead of being trimmed.
 - Resolved PR4a local Codex review findings: Markdown paths discovered through directory traversal or doc_to_md manifests are checked for nested initialized projects before row emission, and no-source ingest now uses lexical manifest lookup for linked working directories.
 - Passed: PR4a Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`.
-- Required next: publish a follow-up PR from latest `origin/main`.
+- Published: PR #7 at `https://github.com/ferryhe/md_to_rag/pull/7`.
+- Resolved PR #7 Copilot comments locally: hoisted Windows reserved basenames to a module constant and simplified non-finite manifest JSON test construction.
+- Passed: PR #7 Copilot/review follow-up validation with `python -m pytest tests/test_ingest_documents.py` (32 passed, 11 skipped), `python -m pytest` (53 passed, 11 skipped), CLI smoke, `git diff --check`, and Pre-PR Codex Review Gate.
+- Resolved PR4a local Codex review finding: directory ingest now checks linked directory entries before Markdown file filtering, so POSIX directory symlinks into nested initialized projects return typed errors instead of producing incomplete parent artifacts.
+- Resolved PR4a local Codex review findings: directory ingest now walks with linked-directory pruning before recursion, and Windows reserved basenames include `CONIN$` and `CONOUT$`.
+- Required next: push the Copilot fixes, then recheck PR #7 for remote feedback.

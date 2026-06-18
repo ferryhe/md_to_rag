@@ -32,6 +32,16 @@ from .schemas import (
 SOURCE_MANIFEST_PATH = "source/source_manifest.jsonl"
 DOCUMENTS_PATH = "documents/documents.jsonl"
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+WINDOWS_RESERVED_BASENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CONIN$",
+    "CONOUT$",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 
 
 @dataclass(frozen=True)
@@ -258,10 +268,13 @@ def _collect_rows(context: _ProjectContext) -> tuple[list[dict[str, Any]], list[
     source_path = context.source_path
     project_root = context.project_root
     if source_path.is_dir():
+        walked_paths = list(_walk_source_tree(source_path))
+        for path in walked_paths:
+            _reject_linked_directory_path(context, path)
         markdown_paths = sorted(
             (
                 path
-                for path in source_path.rglob("*")
+                for path in walked_paths
                 if path.is_file() and path.suffix.lower() in MARKDOWN_SUFFIXES
             ),
             key=lambda path: _relative_to_project_or_raise(path.resolve(), project_root),
@@ -753,6 +766,28 @@ def _reject_nested_project_path(context: _ProjectContext, path: Path) -> None:
         )
 
 
+def _reject_linked_directory_path(context: _ProjectContext, path: Path) -> None:
+    if not path.is_dir() or not _linked_path_components(path):
+        return
+    resolved_path = path.resolve()
+    _reject_generated_artifact_directory_path(context, resolved_path)
+    _reject_nested_project_path(context, resolved_path)
+    relative = _relative_to_project(resolved_path, context.project_root)
+    if isinstance(relative, IngestInputError):
+        raise relative
+    raise IngestInputError(
+        "source_linked_directory",
+        f"Ingest source directory cannot contain linked directories: {path}",
+    )
+
+
+def _walk_source_tree(root: Path) -> Iterable[Path]:
+    for child in sorted(root.iterdir(), key=lambda path: path.as_posix()):
+        yield child
+        if child.is_dir() and not _linked_path_components(child):
+            yield from _walk_source_tree(child)
+
+
 def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -904,21 +939,13 @@ def _portable_relative_path(
 
 
 def _has_windows_reserved_path_component(part: str) -> bool:
-    reserved_names = {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        *(f"COM{index}" for index in range(1, 10)),
-        *(f"LPT{index}" for index in range(1, 10)),
-    }
     normalized = part.rstrip(" .")
     basename = normalized.split(".", 1)[0].upper()
     return (
         any(character in part for character in '<>:"|?*')
         or any(ord(character) < 32 for character in part)
         or normalized != part
-        or basename in reserved_names
+        or basename in WINDOWS_RESERVED_BASENAMES
     )
 
 

@@ -610,8 +610,8 @@ def test_ingest_rejects_non_finite_manifest_values(tmp_path: Path) -> None:
             (
                 '{"documents":[{"markdown_path":"source/converted.md",'
                 f'"{field}":{value}'
-                "}]}",
-            )[0],
+                "}]}"
+            ),
             encoding="utf-8",
         )
 
@@ -639,6 +639,8 @@ def test_ingest_rejects_unsafe_manifest_markdown_targets(tmp_path: Path) -> None
         "source/doc.md:secret.md": "manifest_path_not_portable",
         "source/doc?.md": "manifest_path_not_portable",
         "source/CON.md": "manifest_path_not_portable",
+        "source/CONIN$.md": "manifest_path_not_portable",
+        "source/CONOUT$.md": "manifest_path_not_portable",
         "source/trailing. /doc.md": "manifest_path_not_portable",
         "source/bad\u001fdoc.md": "manifest_path_not_portable",
         "source/source_manifest.jsonl": "source_artifact_collision",
@@ -746,7 +748,7 @@ def test_ingest_rejects_nonportable_direct_markdown_paths(
 ) -> None:
     from md_to_rag import ingest as ingest_module
 
-    for fake_source_path in ("source/doc?.md", r"source/a\b.md"):
+    for fake_source_path in ("source/doc?.md", r"source/a\b.md", "source/CONIN$.md"):
         project = tmp_path / f"project-{sha256(fake_source_path.encode()).hexdigest()[:8]}"
         api.init(project)
         markdown_path = project / "source" / "good.md"
@@ -1032,6 +1034,70 @@ def test_ingest_rejects_nested_project_markdown_found_under_parent_source(
     assert payload["error"]["code"] == "source_nested_project"
     assert not (parent / "documents" / "documents.jsonl").exists()
     assert not (nested_project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_rejects_linked_nested_directory_when_walk_does_not_recurse(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    parent = tmp_path / "parent"
+    nested_project = parent / "nested"
+    api.init(parent)
+    api.init(nested_project)
+    (nested_project / "source" / "doc.md").write_text("# Nested\n", encoding="utf-8")
+    linked_nested = parent / "source" / "linked-nested"
+    _link_directory_or_skip(linked_nested, nested_project)
+    original_rglob = Path.rglob
+
+    def fake_rglob(path: Path, pattern: str):
+        if path == parent / "source":
+            return iter([linked_nested])
+        return original_rglob(path, pattern)
+
+    monkeypatch.setattr(Path, "rglob", fake_rglob)
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(parent / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_nested_project"
+    assert not (parent / "documents" / "documents.jsonl").exists()
+    assert not (nested_project / "documents" / "documents.jsonl").exists()
+    assert "traceback" not in result.output.lower()
+
+
+def test_ingest_prunes_linked_directories_before_recursing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    project = tmp_path / "project"
+    api.init(project)
+    (project / "source" / "doc.md").write_text("# Doc\n", encoding="utf-8")
+    linked_source = project / "source" / "linked-source"
+    _link_directory_or_skip(linked_source, project / "source")
+
+    def fail_rglob(path: Path, pattern: str):
+        raise AssertionError("directory ingest should not use recursive glob")
+
+    monkeypatch.setattr(Path, "rglob", fail_rglob)
+
+    result = runner.invoke(
+        app,
+        ["ingest", "--source", str(project / "source"), "--json"],
+        prog_name="md-to-rag",
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "source_linked_directory"
+    assert not (project / "documents" / "documents.jsonl").exists()
     assert "traceback" not in result.output.lower()
 
 
