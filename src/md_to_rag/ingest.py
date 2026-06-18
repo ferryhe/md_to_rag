@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 from urllib.parse import urlsplit
@@ -31,6 +32,16 @@ from .schemas import (
 SOURCE_MANIFEST_PATH = "source/source_manifest.jsonl"
 DOCUMENTS_PATH = "documents/documents.jsonl"
 MARKDOWN_SUFFIXES = {".md", ".markdown"}
+WINDOWS_RESERVED_BASENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CONIN$",
+    "CONOUT$",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
 
 
 @dataclass(frozen=True)
@@ -75,12 +86,14 @@ def ingest_project(source: str | Path | None = None) -> IngestProjectResult:
     context = context_result
 
     try:
+        source_manifest_path = context.project_root / SOURCE_MANIFEST_PATH
+        documents_path = context.project_root / DOCUMENTS_PATH
+        _reject_output_path_outside_project(context, source_manifest_path, SOURCE_MANIFEST_PATH)
+        _reject_output_path_outside_project(context, documents_path, DOCUMENTS_PATH)
         _reject_generated_artifact_source(context)
         source_rows, document_rows = _collect_rows(context)
         source_text = _jsonl_text(source_rows)
         documents_text = _jsonl_text(document_rows)
-        source_manifest_path = context.project_root / SOURCE_MANIFEST_PATH
-        documents_path = context.project_root / DOCUMENTS_PATH
         source_changed = _write_if_changed(source_manifest_path, source_text)
         documents_changed = _write_if_changed(documents_path, documents_text)
     except IngestInputError as error:
@@ -136,12 +149,12 @@ def ingest_project(source: str | Path | None = None) -> IngestProjectResult:
 
 def _resolve_context(source: str | Path | None) -> _ProjectContext | IngestProjectResult:
     if source is None:
-        manifest_path = _find_manifest(Path.cwd())
+        manifest_path = _find_manifest_lexical(Path.cwd())
         source_path: Path | None = None
     else:
         requested_source = _resolve_user_path(source)
         anchor = requested_source if requested_source.exists() else _nearest_existing_ancestor(requested_source)
-        manifest_path = _find_manifest(anchor)
+        manifest_path = _find_manifest_lexical(anchor)
         source_path = requested_source
 
     if manifest_path is None:
@@ -176,7 +189,23 @@ def _resolve_context(source: str | Path | None) -> _ProjectContext | IngestProje
     if source_path is None:
         source_path = project_root / manifest.artifact_directories.get("source", "source")
 
-    source_resolved = source_path.resolve()
+    try:
+        source_resolved = source_path.resolve()
+    except (OSError, RuntimeError, ValueError) as error:
+        message = f"Could not resolve ingest source: {source_path}"
+        return IngestProjectResult(
+            status=CommandStatus.ERROR,
+            message=message,
+            data=IngestErrorData(
+                project_root=str(project_root),
+                manifest_path=str(manifest_path.resolve()),
+                source_path=str(source_path),
+            ),
+            error=CommandError(
+                code="source_path_unresolvable",
+                message=f"{message}: {error}",
+            ),
+        )
     source_relative_result = _relative_to_project(source_resolved, project_root)
     if isinstance(source_relative_result, IngestInputError):
         return _input_error_result(
@@ -205,6 +234,27 @@ def _resolve_context(source: str | Path | None) -> _ProjectContext | IngestProje
             ),
         )
 
+    nested_manifest_path = _nearest_nested_manifest(
+        source_resolved,
+        project_root,
+        manifest_path,
+    )
+    if nested_manifest_path is not None:
+        return _input_error_result(
+            IngestInputError(
+                "source_nested_project",
+                "Ingest source resolves inside a nested initialized project; "
+                "use that project path directly.",
+            ),
+            _ProjectContext(
+                project_root=project_root,
+                manifest_path=manifest_path.resolve(),
+                manifest=manifest,
+                source_path=source_resolved,
+                source_path_relative=source_relative_result,
+            ),
+        )
+
     return _ProjectContext(
         project_root=project_root,
         manifest_path=manifest_path.resolve(),
@@ -218,10 +268,13 @@ def _collect_rows(context: _ProjectContext) -> tuple[list[dict[str, Any]], list[
     source_path = context.source_path
     project_root = context.project_root
     if source_path.is_dir():
+        walked_paths = list(_walk_source_tree(source_path))
+        for path in walked_paths:
+            _reject_linked_directory_path(context, path)
         markdown_paths = sorted(
             (
                 path
-                for path in source_path.rglob("*")
+                for path in walked_paths
                 if path.is_file() and path.suffix.lower() in MARKDOWN_SUFFIXES
             ),
             key=lambda path: _relative_to_project_or_raise(path.resolve(), project_root),
@@ -240,7 +293,7 @@ def _collect_rows(context: _ProjectContext) -> tuple[list[dict[str, Any]], list[
             _record_from_manifest_row(source_path, context, row, index)
             for index, row in enumerate(_read_doc_to_md_rows(source_path))
         ]
-        records.sort(key=lambda record: record["source_path"])
+        records.sort(key=_source_key)
         return _rows_from_records(records)
 
     raise IngestInputError(
@@ -267,10 +320,17 @@ def _reject_generated_artifact_source(context: _ProjectContext) -> None:
 
 def _record_from_markdown(path: Path, context: _ProjectContext) -> dict[str, Any]:
     project_root = context.project_root
-    _reject_generated_artifact_directory_path(context, path.resolve())
-    source_path = _relative_to_project(path.resolve(), project_root)
+    resolved_path = path.resolve()
+    _reject_generated_artifact_directory_path(context, resolved_path)
+    _reject_nested_project_path(context, resolved_path)
+    source_path = _relative_to_project(resolved_path, project_root)
     if isinstance(source_path, IngestInputError):
         raise source_path
+    source_path = _portable_markdown_path(
+        source_path,
+        "Markdown source path",
+        allow_backslash_separators=False,
+    )
     content = _read_markdown(path)
     content_hash = _hash_bytes(content.encode("utf-8"))
     title = _title_from_markdown(content, path)
@@ -319,13 +379,21 @@ def _record_from_manifest_row(
             status=CommandStatus.MISSING_ARTIFACT,
         )
 
-    _reject_generated_artifact_directory_path(context, markdown_path.resolve())
-    source_path = _relative_to_project(markdown_path.resolve(), project_root)
+    resolved_markdown_path = markdown_path.resolve()
+    _reject_generated_artifact_directory_path(context, resolved_markdown_path)
+    _reject_nested_project_path(context, resolved_markdown_path)
+    source_path = _relative_to_project(resolved_markdown_path, project_root)
     manifest_relative = _relative_to_project(manifest_path.resolve(), project_root)
     if isinstance(source_path, IngestInputError):
         raise source_path
     if isinstance(manifest_relative, IngestInputError):
         raise manifest_relative
+    source_path = _portable_markdown_path(
+        source_path,
+        "Manifest row resolved Markdown path",
+        allow_backslash_separators=False,
+    )
+    manifest_relative = _portable_manifest_path(manifest_relative)
 
     upstream_source = _portable_upstream_path(
         _first_value(row, ("source_path", "input_path", "original_path"))
@@ -435,12 +503,12 @@ def _read_doc_to_md_rows(manifest_path: Path) -> list[dict[str, Any]]:
     try:
         if manifest_path.suffix.lower() == ".jsonl":
             rows = [
-                json.loads(line)
+                _json_loads_strict(line)
                 for line in manifest_path.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             ]
         else:
-            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            raw = _json_loads_strict(manifest_path.read_text(encoding="utf-8"))
             if isinstance(raw, list):
                 rows = raw
             elif isinstance(raw, dict):
@@ -579,8 +647,57 @@ def _input_error_result(error: IngestInputError, context: _ProjectContext) -> In
 def _resolve_user_path(path: str | Path) -> Path:
     user_path = Path(path).expanduser()
     if user_path.is_absolute():
-        return user_path.resolve()
-    return (Path.cwd() / user_path).resolve()
+        return user_path
+    return Path.cwd() / user_path
+
+
+def _find_manifest_lexical(start: Path) -> Path | None:
+    candidates = [start] if start.is_dir() else [start.parent]
+    candidates.extend(candidates[0].parents)
+    for directory in candidates:
+        manifest_path = directory / MANIFEST_FILENAME
+        if manifest_path.exists():
+            if _manifest_is_under_disallowed_link(directory, candidates):
+                continue
+            return manifest_path
+    return None
+
+
+def _manifest_is_under_disallowed_link(directory: Path, candidates: list[Path]) -> bool:
+    linked_components = _linked_path_components(directory)
+    if not linked_components:
+        return False
+    return _has_manifest_above_link(linked_components[0], candidates)
+
+
+def _has_manifest_above_link(linked_path: Path, candidates: list[Path]) -> bool:
+    for candidate in candidates:
+        if candidate == linked_path or not _is_relative_to(linked_path, candidate):
+            continue
+        if (candidate / MANIFEST_FILENAME).exists():
+            return True
+    return False
+
+
+def _linked_path_components(path: Path) -> list[Path]:
+    components: list[Path] = []
+    current = path
+    while True:
+        if _is_path_component_link(current):
+            components.append(current)
+        if current == current.parent:
+            return components
+        current = current.parent
+
+
+def _is_path_component_link(path: Path) -> bool:
+    try:
+        if path.name in {".", ".."} or not path.exists() or path == path.parent:
+            return False
+        expected_path = path.parent.resolve() / path.name
+        return path.resolve() != expected_path
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _relative_to_project(path: Path, project_root: Path) -> str | IngestInputError:
@@ -601,6 +718,76 @@ def _relative_to_project_or_raise(path: Path, project_root: Path) -> str:
     return relative
 
 
+def _nearest_nested_manifest(
+    path: Path,
+    project_root: Path,
+    current_manifest_path: Path,
+) -> Path | None:
+    candidates = [path] if path.is_dir() else [path.parent]
+    candidates.extend(candidates[0].parents)
+    try:
+        project_root_resolved = project_root.resolve()
+        current_manifest_resolved = current_manifest_path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+    for directory in candidates:
+        try:
+            directory_resolved = directory.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if directory_resolved == project_root_resolved:
+            return None
+        if not _is_relative_to(directory_resolved, project_root_resolved):
+            continue
+        nested_manifest_path = directory / MANIFEST_FILENAME
+        if not nested_manifest_path.exists():
+            continue
+        try:
+            nested_manifest_resolved = nested_manifest_path.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if nested_manifest_resolved != current_manifest_resolved:
+            return nested_manifest_path
+    return None
+
+
+def _reject_nested_project_path(context: _ProjectContext, path: Path) -> None:
+    nested_manifest_path = _nearest_nested_manifest(
+        path,
+        context.project_root,
+        context.manifest_path,
+    )
+    if nested_manifest_path is not None:
+        raise IngestInputError(
+            "source_nested_project",
+            "Ingest source resolves inside a nested initialized project; "
+            "use that project path directly.",
+        )
+
+
+def _reject_linked_directory_path(context: _ProjectContext, path: Path) -> None:
+    if not path.is_dir() or not _linked_path_components(path):
+        return
+    resolved_path = path.resolve()
+    _reject_generated_artifact_directory_path(context, resolved_path)
+    _reject_nested_project_path(context, resolved_path)
+    relative = _relative_to_project(resolved_path, context.project_root)
+    if isinstance(relative, IngestInputError):
+        raise relative
+    raise IngestInputError(
+        "source_linked_directory",
+        f"Ingest source directory cannot contain linked directories: {path}",
+    )
+
+
+def _walk_source_tree(root: Path) -> Iterable[Path]:
+    for child in sorted(root.iterdir(), key=lambda path: path.as_posix()):
+        yield child
+        if child.is_dir() and not _linked_path_components(child):
+            yield from _walk_source_tree(child)
+
+
 def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -610,11 +797,19 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def _generated_artifact_directories(context: _ProjectContext) -> dict[Path, str]:
-    return {
-        (context.project_root / relative_path).resolve(): relative_path
-        for name, relative_path in context.manifest.artifact_directories.items()
-        if name != "source"
-    }
+    directories: dict[Path, str] = {}
+    for name, relative_path in context.manifest.artifact_directories.items():
+        if name == "source":
+            continue
+        artifact_directory = context.project_root / relative_path
+        try:
+            directories[artifact_directory.resolve()] = relative_path
+        except (OSError, RuntimeError, ValueError) as error:
+            raise IngestInputError(
+                "artifact_path_collision",
+                f"Generated artifact directory cannot be resolved safely: {relative_path}",
+            ) from error
+    return directories
 
 
 def _reject_generated_artifact_directory_path(
@@ -629,12 +824,47 @@ def _reject_generated_artifact_directory_path(
             )
 
 
+def _reject_output_path_outside_project(
+    context: _ProjectContext,
+    output_path: Path,
+    artifact_path: str,
+) -> None:
+    try:
+        resolved_output = output_path.resolve()
+    except (OSError, RuntimeError, ValueError) as error:
+        raise IngestInputError(
+            "artifact_path_collision",
+            f"Generated artifact path cannot be resolved safely: {artifact_path}",
+        ) from error
+    relative = _relative_to_project(resolved_output, context.project_root)
+    if isinstance(relative, IngestInputError):
+        raise IngestInputError(
+            "artifact_path_outside_project",
+            f"Generated artifact path must stay inside the initialized project: {artifact_path}",
+        )
+    if resolved_output != output_path.absolute():
+        raise IngestInputError(
+            "artifact_path_collision",
+            f"Generated artifact path cannot be a symlink or linked path: {artifact_path}",
+        )
+    if output_path.exists() and output_path.stat().st_nlink > 1:
+        raise IngestInputError(
+            "artifact_path_collision",
+            f"Generated artifact path cannot be a hard-linked path: {artifact_path}",
+        )
+
+
 def _project_path_from_manifest_value(value: Any, project_root: Path) -> Path:
     if not isinstance(value, str) or not value.strip():
         raise IngestInputError(
             "manifest_row_missing_markdown_path",
             "doc_to_md manifest Markdown path must be a non-empty string.",
-    )
+        )
+    if "\0" in value:
+        raise IngestInputError(
+            "manifest_path_not_portable",
+            f"Manifest row Markdown path must be project-relative and portable: {value!r}",
+        )
 
     relative = _portable_project_relative_markdown_path(value)
     path = (project_root / relative).resolve()
@@ -642,7 +872,45 @@ def _project_path_from_manifest_value(value: Any, project_root: Path) -> Path:
 
 
 def _portable_project_relative_markdown_path(value: str) -> str:
-    normalized_text = value.replace("\\", "/").strip()
+    return _portable_markdown_path(value, "Manifest row Markdown path")
+
+
+def _portable_manifest_path(value: str) -> str:
+    return _portable_relative_path(
+        value,
+        "doc_to_md manifest path",
+        allowed_suffixes={".json", ".jsonl"},
+        allow_backslash_separators=False,
+    )
+
+
+def _portable_markdown_path(
+    value: str,
+    label: str,
+    *,
+    allow_backslash_separators: bool = True,
+) -> str:
+    return _portable_relative_path(
+        value,
+        label,
+        allowed_suffixes=MARKDOWN_SUFFIXES,
+        allow_backslash_separators=allow_backslash_separators,
+    )
+
+
+def _portable_relative_path(
+    value: str,
+    label: str,
+    *,
+    allowed_suffixes: set[str],
+    allow_backslash_separators: bool,
+) -> str:
+    if not allow_backslash_separators and "\\" in value:
+        raise IngestInputError(
+            "manifest_path_not_portable",
+            f"{label} must be project-relative and portable: {value}",
+        )
+    normalized_text = value.replace("\\", "/")
     posix_path = PurePosixPath(normalized_text)
     windows_path = PureWindowsPath(normalized_text)
     if (
@@ -650,23 +918,35 @@ def _portable_project_relative_markdown_path(value: str) -> str:
         or windows_path.is_absolute()
         or bool(windows_path.drive)
         or ".." in posix_path.parts
+        or any(_has_windows_reserved_path_component(part) for part in posix_path.parts)
     ):
         raise IngestInputError(
             "manifest_path_not_portable",
-            f"Manifest row Markdown path must be project-relative and portable: {value}",
+            f"{label} must be project-relative and portable: {value}",
         )
     relative = posix_path.as_posix()
     if relative in {SOURCE_MANIFEST_PATH, DOCUMENTS_PATH}:
         raise IngestInputError(
             "source_artifact_collision",
-            f"doc_to_md manifest row cannot point to a generated md_to_rag artifact: {relative}",
+            f"{label} cannot point to a generated md_to_rag artifact: {relative}",
         )
-    if posix_path.suffix.lower() not in MARKDOWN_SUFFIXES:
+    if posix_path.suffix.lower() not in allowed_suffixes:
         raise IngestInputError(
             "unsupported_source",
-            f"Manifest row Markdown path must point to a Markdown file: {value}",
+            f"{label} must point to a supported file: {value}",
         )
     return relative
+
+
+def _has_windows_reserved_path_component(part: str) -> bool:
+    normalized = part.rstrip(" .")
+    basename = normalized.split(".", 1)[0].upper()
+    return (
+        any(character in part for character in '<>:"|?*')
+        or any(ord(character) < 32 for character in part)
+        or normalized != part
+        or basename in WINDOWS_RESERVED_BASENAMES
+    )
 
 
 def _portable_upstream_path(value: Any) -> str | None:
@@ -674,6 +954,11 @@ def _portable_upstream_path(value: Any) -> str | None:
         return None
     if not isinstance(value, str) or not value.strip():
         return None
+    if "\0" in value:
+        raise IngestInputError(
+            "manifest_path_not_portable",
+            f"Manifest upstream source path must be relative and portable: {value!r}",
+        )
     stripped = value.strip()
     normalized_text = stripped.replace("\\", "/")
     windows_path = PureWindowsPath(normalized_text)
@@ -682,14 +967,26 @@ def _portable_upstream_path(value: Any) -> str | None:
             "manifest_path_not_portable",
             f"Manifest upstream source path must be relative and portable: {value}",
         )
-    parsed_uri = urlsplit(stripped)
+    try:
+        parsed_uri = urlsplit(stripped)
+    except ValueError as error:
+        raise IngestInputError(
+            "manifest_path_not_portable",
+            f"Manifest upstream source path must be relative and portable: {value}",
+        ) from error
     if parsed_uri.scheme:
+        if "\\" in stripped or parsed_uri.scheme in {"http", "https"} and not parsed_uri.netloc:
+            raise IngestInputError(
+                "manifest_path_not_portable",
+                f"Manifest upstream source path must be relative and portable: {value}",
+            )
         return stripped
     posix_path = PurePosixPath(normalized_text)
     if (
         posix_path.is_absolute()
         or windows_path.is_absolute()
         or ".." in posix_path.parts
+        or any(_has_windows_reserved_path_component(part) for part in posix_path.parts)
     ):
         raise IngestInputError(
             "manifest_path_not_portable",
@@ -766,11 +1063,36 @@ def _hash_bytes(data: bytes) -> str:
     return f"sha256:{sha256(data).hexdigest()}"
 
 
-def _jsonl_text(rows: Iterable[dict[str, Any]]) -> str:
-    return "".join(
-        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
-        for row in rows
+def _json_loads_strict(text: str) -> Any:
+    return json.loads(
+        text,
+        parse_constant=_reject_json_constant,
+        parse_float=_json_float_strict,
     )
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON value is not supported: {value}")
+
+
+def _json_float_strict(value: str) -> float:
+    parsed = float(value)
+    if not isfinite(parsed):
+        raise ValueError(f"non-finite JSON value is not supported: {value}")
+    return parsed
+
+
+def _jsonl_text(rows: Iterable[dict[str, Any]]) -> str:
+    try:
+        return "".join(
+            json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+            for row in rows
+        )
+    except ValueError as error:
+        raise IngestInputError(
+            "source_manifest_invalid",
+            f"Ingest artifacts must be portable JSONL with finite values: {error}",
+        ) from error
 
 
 def _write_if_changed(path: Path, text: str) -> bool:
