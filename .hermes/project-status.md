@@ -1,14 +1,14 @@
 # md_to_rag Project Status
 
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/diff-rebuild-artifacts`
-- Active PR lane: PR8 compatible `diff` and `rebuild`
+- Active branch: `codex/raganything-backend-adapter`
+- Active PR lane: PR9 optional internal RAG-Anything backend/adapter
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: PR8 compatible `diff` and `rebuild`; preserve current CLI/API/MCP contracts and merged `ingest`/`chunk`/`embed`/`index`/`query` behavior
+- Current task: PR9 optional internal RAG-Anything backend/adapter; preserve current public CLI/API/MCP/artifact contracts and keep the native local backend as default
 
 ## Current Contract Decisions
 
@@ -34,7 +34,7 @@ Last updated: 2026-06-18
 | PR6 | `codex/embed-artifacts` | Merged (#9) | `embed` and cache/profile behavior. |
 | PR7 | `codex/index-query-artifacts` | Merged (#10) | Native `index` and `query`. |
 | PR8 | `codex/diff-rebuild-artifacts` | In progress | Compatible `diff` and `rebuild`. |
-| PR9 | TBD | Queued | Optional internal RAG-Anything backend. |
+| PR9 | `codex/raganything-backend-adapter` | In progress | Optional internal RAG-Anything backend. |
 
 ## Completion Policy
 
@@ -191,3 +191,9 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - PR8 validation so far: legacy source/profile replay, diff manifest-status, partial rebuild drift, non-portable/rooted/backslash/non-UTF-8 default source, recorded stage input-path, nested-project source for diff/rebuild including legacy fallback, no-widening legacy Markdown source, invalid replay-profile, missing-embeddings recorded-profile, generated-artifact source, missing linked-artifact ownership, drifted legacy source-manifest, and linked legacy source-manifest regressions passed or skipped where symlink creation is unavailable; `python -m pytest tests/test_diff_rebuild_artifacts.py::test_diff_and_rebuild_reject_linked_legacy_source_manifest_rows -q` (1 passed); `python -m pytest tests/test_diff_rebuild_artifacts.py tests/test_public_shells.py tests/test_ingest_documents.py -q` (99 passed, 12 skipped); `python -m pytest -q` (211 passed, 13 skipped); installed and module CLI help checks for every command passed; installed CLI JSON smoke `init -> rebuild -> rebuild -> diff -> inspect` passed; `git diff --check` passed with CRLF conversion warnings only.
 - Passed: PR8 Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`, and the final gate reported no introduced correctness issues.
 - Required next: commit, push, open PR8, and check GitHub checks plus remote review/Copilot comments.
+- PR9 scope: add an optional internal RAG-Anything backend/adapter only; preserve current public CLI/API/MCP/artifact contracts; keep native local embedding/index/query as the default path; do not expose upstream RAG-Anything objects in public responses, MCP schemas, or artifacts.
+- PR9 implementation: added internal `src/md_to_rag/raganything_adapter.py` with `RAGAnythingAdapterConfig`, optional dependency loading for `raganything`, upstream `RAGAnythingConfig` construction, and narrow async wrappers around `insert_content_list(...)` and `aquery(...)` that return md_to_rag-owned normalized result models. The adapter reports missing or incompatible optional dependency state through owned adapter errors, validates internal config/options/content/query inputs, and rejects secret-looking config options before passing them to upstream configuration.
+- PR9 controller/review fixes: wrapped upstream RAG-Anything config construction, content insertion, query failures, missing/broken optional dependency imports, lazy dependency attribute lookup failures, backend method lookup failures, JSON round-trip validation failures, and query-result normalization failures in md_to_rag-owned errors so optional backend exception types, messages, tracebacks, or chained causes cannot cross the adapter boundary; accepted Pre-PR Codex Review Gate P2/P3 findings to reject token-like/provider-owned config option names such as `apiToken`, `authToken`, `idToken`, `sessionToken`, `securityToken`, `csrfToken`, `amzSecurityToken`, `openaiKey`, `OpenAIKey`, `openaiToken`, `openaiApiToken`, `apiTokenValue`, `oauthToken`, `clientSecrets`, `passwords`, `jwt`, `token`, `max_api_token`, `max_auth_token`, and `summary_session_tokens`, freeze top-level validated config options, revalidate options before upstream construction, validate internal `llm_model_func` and `embedding_func` arguments are callable before forwarding them, keep config-only secret/managed-key policy out of content/query payload validation, route exact-allowlisted non-secret LightRAG tuning options such as `max_entity_tokens`, `max_relation_tokens`, `max_total_tokens`, and `summary_max_tokens` through `RAGAnything(..., lightrag_kwargs=...)` instead of `RAGAnythingConfig`, initialize upstream LightRAG state before query-only `aquery(...)` calls when the optional upstream initializer is available, reserve adapter-owned callable keys such as `llm_model_func` and `embedding_func`, reject token-header secret variants such as `tokenHeaderValue`, `authTokenHeaderValue`, and `idTokenHeaderValue`, reject header/cookie credential config such as `authHeaders`, `cookies`, `headers="Authorization: Bearer ..."`, `headers=[["X-Api-Key", "..."]]`, `headers=[["X-Csrf-Token", "..."]]`, `headers={"Authorization": "..."}`, and `headers={"X-Amz-Security-Token": "..."}`, and keep harmless header metadata forms such as `headers=[{"key": "Accept", "value": "application/json"}]` portable.
+- PR9 validation so far: TDD red run for `tests/test_raganything_adapter.py` failed on the missing adapter module as expected; latest green run passed with `python -m pytest tests/test_raganything_adapter.py -q` (16 passed); public contract-focused run passed with `python -m pytest tests/test_raganything_adapter.py tests/test_public_shells.py -q` (40 passed); full suite passed with `python -m pytest -q` (227 passed, 13 skipped); module and installed CLI help passed; every `python -m md_to_rag <command> --help` passed; `git diff --check` passed with CRLF warnings only.
+- Passed: PR9 Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`, and the final gate reported no actionable correctness issues.
+- PR9 required next: commit, push, open/update PR9, and perform the required remote checks/review follow-up.
