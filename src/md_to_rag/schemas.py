@@ -14,6 +14,8 @@ class CommandName(str, Enum):
     INDEX = "index"
     QUERY = "query"
     INSPECT = "inspect"
+    DIFF = "diff"
+    REBUILD = "rebuild"
 
 
 class CommandStatus(str, Enum):
@@ -54,6 +56,14 @@ class QueryRequest(BaseModel):
 
 class InspectRequest(BaseModel):
     artifact: str | None = None
+
+
+class DiffRequest(BaseModel):
+    project: str | None = None
+
+
+class RebuildRequest(BaseModel):
+    project: str | None = None
 
 
 class EmptyResponseData(BaseModel):
@@ -188,6 +198,77 @@ class QueryErrorData(BaseModel):
     index_manifest_path: str | None = None
 
 
+class DiffStageData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: CommandName
+    status: str
+    rebuild_needed: bool
+    missing: bool = False
+    stale: bool = False
+    artifact_paths: dict[str, str] = Field(default_factory=dict)
+    current_hashes: dict[str, JsonValue] = Field(default_factory=dict)
+    expected_hashes: dict[str, JsonValue] = Field(default_factory=dict)
+    recorded_hashes: dict[str, JsonValue] = Field(default_factory=dict)
+    issues: list[str] = Field(default_factory=list)
+    error: CommandError | None = None
+
+
+class DiffResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str
+    manifest_path: str
+    rebuild_needed: bool
+    stages: list[DiffStageData]
+    missing_stages: list[CommandName] = Field(default_factory=list)
+    stale_stages: list[CommandName] = Field(default_factory=list)
+    error_stages: list[CommandName] = Field(default_factory=list)
+
+
+class DiffErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = None
+    manifest_path: str | None = None
+    project_path: str | None = None
+
+
+class RebuildStepData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: CommandName
+    status: str
+    message: str
+    changed: bool | None = None
+    artifact_path: str | None = None
+    skipped: bool = False
+    error: CommandError | None = None
+
+
+class RebuildResponseData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str
+    manifest_path: str
+    changed: bool
+    completed: bool
+    steps: list[RebuildStepData]
+    stopped_at: CommandName | None = None
+
+
+class RebuildErrorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = None
+    manifest_path: str | None = None
+    project_path: str | None = None
+    changed: bool = False
+    completed: bool = False
+    steps: list[RebuildStepData] = Field(default_factory=list)
+    stopped_at: CommandName | None = None
+
+
 class ManifestCommandStatus(BaseModel):
     command: CommandName
     status: CommandStatus
@@ -276,6 +357,16 @@ class InspectResponse(CommandResponse):
     data: InspectResponseData
 
 
+class DiffResponse(CommandResponse):
+    command: Literal[CommandName.DIFF]
+    data: DiffResponseData | DiffErrorData | EmptyResponseData
+
+
+class RebuildResponse(CommandResponse):
+    command: Literal[CommandName.REBUILD]
+    data: RebuildResponseData | RebuildErrorData | EmptyResponseData
+
+
 class ToolMetadata(BaseModel):
     name: str
     command: CommandName
@@ -292,6 +383,8 @@ COMMAND_INPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INDEX: IndexRequest,
     CommandName.QUERY: QueryRequest,
     CommandName.INSPECT: InspectRequest,
+    CommandName.DIFF: DiffRequest,
+    CommandName.REBUILD: RebuildRequest,
 }
 
 
@@ -303,6 +396,8 @@ COMMAND_OUTPUT_MODELS: dict[CommandName, type[BaseModel]] = {
     CommandName.INDEX: IndexResponse,
     CommandName.QUERY: QueryResponse,
     CommandName.INSPECT: InspectResponse,
+    CommandName.DIFF: DiffResponse,
+    CommandName.REBUILD: RebuildResponse,
 }
 
 

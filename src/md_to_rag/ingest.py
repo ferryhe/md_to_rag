@@ -586,6 +586,7 @@ def _update_manifest_status(
         artifact_path=DOCUMENTS_PATH,
         updated_at=_utc_now(),
         data={
+            "source_path": data.source_path,
             "document_count": data.document_count,
             "source_count": data.source_count,
             "source_manifest_path": data.source_manifest_path,
@@ -618,9 +619,18 @@ def _manifest_status_matches(manifest: ProjectManifest, data: IngestResponseData
     for existing_status in manifest.command_status:
         if existing_status.command is not CommandName.INGEST:
             continue
+        existing_source_path = existing_status.data.get("source_path")
+        source_path_matches = (
+            existing_source_path == data.source_path
+            or (
+                "source_path" not in existing_status.data
+                and data.source_path == manifest.artifact_directories.get("source", "source")
+            )
+        )
         return (
             existing_status.status is CommandStatus.OK
             and existing_status.artifact_path == DOCUMENTS_PATH
+            and source_path_matches
             and existing_status.data.get("document_count") == data.document_count
             and existing_status.data.get("source_count") == data.source_count
             and existing_status.data.get("source_manifest_path") == data.source_manifest_path
