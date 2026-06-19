@@ -20,6 +20,17 @@ runner = CliRunner()
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+class FakeEmbeddingFunc:
+    embedding_dim = 1
+    max_token_size = 8192
+
+    async def func(self, *_args: Any, **_kwargs: Any) -> list[list[float]]:
+        return [[0.1]]
+
+    async def __call__(self, *_args: Any, **_kwargs: Any) -> list[list[float]]:
+        return await self.func(*_args, **_kwargs)
+
+
 def test_optional_dependency_extra_targets_raganything_range() -> None:
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
 
@@ -82,6 +93,26 @@ def test_adapter_wraps_broken_dependency_loading_without_backend_messages(
     assert "RuntimeError" not in formatted_import_error
     assert "upstream import" not in formatted_import_error
 
+    def exiting_import(name: str) -> Any:
+        assert name == "raganything"
+        raise SystemExit("upstream import exited with secret")
+
+    monkeypatch.setattr(raganything_adapter.importlib, "import_module", exiting_import)
+
+    with pytest.raises(raganything_adapter.RAGAnythingDependencyError) as exit_exc:
+        raganything_adapter.create_raganything_backend(
+            raganything_adapter.RAGAnythingAdapterConfig(
+                working_dir=tmp_path / "raganything-storage"
+            )
+        )
+
+    assert exit_exc.value.code == "raganything_unavailable"
+    assert "secret" not in exit_exc.value.message
+    assert exit_exc.value.__cause__ is None
+    formatted_exit_error = "".join(traceback.format_exception(exit_exc.value))
+    assert "SystemExit" not in formatted_exit_error
+    assert "upstream import" not in formatted_exit_error
+
     class BrokenModule:
         @property
         def RAGAnythingConfig(self) -> object:
@@ -140,6 +171,12 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"working_dir": tmp_path / "rag", "parse_method": ""},
         {"working_dir": tmp_path / "rag", "query_mode": ""},
         {"working_dir": tmp_path / "rag", "display_stats": "yes"},
+        {"working_dir": tmp_path / "rag", "config_options": {"context_window": 8192}},
+        {"working_dir": tmp_path / "rag", "config_options": {"max_entitiy_tokens": 256}},
+        {
+            "working_dir": tmp_path / "rag",
+            "config_options": {"max_entity_tokens": 256, "maxEntityTokens": 512},
+        },
         {"working_dir": tmp_path / "rag", "config_options": {"llm_model_func": "bad"}},
         {"working_dir": tmp_path / "rag", "config_options": {"embedding_func": "bad"}},
         {"working_dir": tmp_path / "rag", "config_options": {"llmModelFunc": "bad"}},
@@ -156,6 +193,9 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"working_dir": tmp_path / "rag", "config_options": {"auth": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"authentication": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"auth_method": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"proxyAuth": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"client_auth": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"customAuthentication": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"cookies": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"githubToken": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"github_token": "secret"}},
@@ -204,6 +244,20 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         },
         {
             "working_dir": tmp_path / "rag",
+            "config_options": {
+                "request": {"headerName": "Authorization", "value": "Bearer secret"}
+            },
+        },
+        {
+            "working_dir": tmp_path / "rag",
+            "config_options": {
+                "llm_model_kwargs": {
+                    "request": {"headers": "Authorization", "value": "Bearer secret"}
+                }
+            },
+        },
+        {
+            "working_dir": tmp_path / "rag",
             "config_options": {"headers": [["X-Api-Key", "secret"]]},
         },
         {
@@ -212,11 +266,25 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         },
         {
             "working_dir": tmp_path / "rag",
+            "config_options": {
+                "headers": ["Accept", "application/json", "Authorization", "secret"]
+            },
+        },
+        {
+            "working_dir": tmp_path / "rag",
             "config_options": {"headers": {"Authorization": "Bearer secret"}},
         },
         {
             "working_dir": tmp_path / "rag",
             "config_options": {"headers": {"X-Amz-Security-Token": "secret"}},
+        },
+        {
+            "working_dir": tmp_path / "rag",
+            "config_options": {"headers": {"X-Auth": "opaque-secret"}},
+        },
+        {
+            "working_dir": tmp_path / "rag",
+            "config_options": {"headers": [{"key": "X-Authentication", "value": "secret"}]},
         },
         {
             "working_dir": tmp_path / "rag",
@@ -258,6 +326,14 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"working_dir": tmp_path / "rag", "config_options": {"amzSecurityToken": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"jwt": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"token": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"headers": {"Accept": "application/json"}}},
+        {"working_dir": tmp_path / "rag", "config_options": {"request": {"headerName": "Accept"}}},
+        {"working_dir": tmp_path / "rag", "config_options": {"max_tokens": 1024}},
+        {"working_dir": tmp_path / "rag", "config_options": {"chunk_max_tokens": 512}},
+        {"working_dir": tmp_path / "rag", "config_options": {"max_entity_tokens": "256"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"chunk_overlap_token_size": -1}},
+        {"working_dir": tmp_path / "rag", "config_options": {"tiktoken_model_name": ""}},
+        {"working_dir": tmp_path / "rag", "config_options": {"tokenizer": "portable"}},
         {"working_dir": tmp_path / "rag", "config_options": {"bad": object()}},
     ]
     for kwargs in invalid_configs:
@@ -267,43 +343,38 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
     portable_token_counts = raganything_adapter.RAGAnythingAdapterConfig(
         working_dir=tmp_path / "rag",
         config_options={
-            "headers": {"Accept": "application/json"},
-            "max_tokens": 1024,
             "max_entity_tokens": 256,
             "max_relation_tokens": 128,
             "max_total_tokens": 2048,
             "summary_max_tokens": 512,
-            "tokenizer": "portable",
+            "summary_context_size": 1536,
+            "chunk_token_size": 1024,
+            "chunk_overlap_token_size": 128,
+            "tiktoken_model_name": "cl100k_base",
         },
     )
-    assert portable_token_counts.to_lightrag_kwargs()["max_tokens"] == 1024
     assert portable_token_counts.to_lightrag_kwargs()["max_entity_tokens"] == 256
     assert portable_token_counts.to_lightrag_kwargs()["max_relation_tokens"] == 128
     assert portable_token_counts.to_lightrag_kwargs()["max_total_tokens"] == 2048
     assert portable_token_counts.to_lightrag_kwargs()["summary_max_tokens"] == 512
+    assert portable_token_counts.to_lightrag_kwargs()["summary_context_size"] == 1536
+    assert portable_token_counts.to_lightrag_kwargs()["chunk_token_size"] == 1024
+    assert portable_token_counts.to_lightrag_kwargs()["chunk_overlap_token_size"] == 128
+    assert portable_token_counts.to_lightrag_kwargs()["tiktoken_model_name"] == "cl100k_base"
 
-    portable_headers = raganything_adapter.RAGAnythingAdapterConfig(
+    portable_aliases = raganything_adapter.RAGAnythingAdapterConfig(
         working_dir=tmp_path / "rag",
         config_options={
-            "headers": [
-                {"key": "Accept", "value": "application/json"},
-                {"headerName": "X-Trace-Id", "headerValue": "trace-1"},
-            ],
+            "maxEntityTokens": 256,
+            "chunk-token-size": 1024,
+            "summaryContextSize": 1536,
         },
     )
-    assert portable_headers.to_lightrag_kwargs()["headers"] == [
-        {"key": "Accept", "value": "application/json"},
-        {"headerName": "X-Trace-Id", "headerValue": "trace-1"},
-    ]
-
-    portable_header_block = raganything_adapter.RAGAnythingAdapterConfig(
-        working_dir=tmp_path / "rag",
-        config_options={"headers": "Accept: application/json\nX-Trace-Id: trace-1"},
-    )
-    assert (
-        portable_header_block.to_lightrag_kwargs()["headers"]
-        == "Accept: application/json\nX-Trace-Id: trace-1"
-    )
+    assert portable_aliases.to_lightrag_kwargs() == {
+        "max_entity_tokens": 256,
+        "chunk_token_size": 1024,
+        "summary_context_size": 1536,
+    }
 
 
 def test_adapter_config_options_are_frozen_and_revalidated(tmp_path: Path) -> None:
@@ -311,15 +382,13 @@ def test_adapter_config_options_are_frozen_and_revalidated(tmp_path: Path) -> No
 
     config = raganything_adapter.RAGAnythingAdapterConfig(
         working_dir=tmp_path / "raganything-storage",
-        config_options={"nested": {"max_entity_tokens": 256}},
+        config_options={"max_entity_tokens": 256},
     )
 
     with pytest.raises(TypeError):
         config.config_options["api_key"] = "secret"  # type: ignore[index]
 
-    nested = config.config_options["nested"]
-    assert isinstance(nested, dict)
-    nested["apiToken"] = "secret"
+    object.__setattr__(config, "config_options", {"apiToken": "secret"})
 
     with pytest.raises(raganything_adapter.RAGAnythingConfigError):
         config.to_lightrag_kwargs()
@@ -367,7 +436,7 @@ def test_adapter_uses_raganything_touchpoints_and_normalizes_results(tmp_path: P
             RAGAnythingConfig=FakeRAGAnythingConfig,
         ),
         llm_model_func=lambda *_args, **_kwargs: "llm",
-        embedding_func=lambda *_args, **_kwargs: [0.1],
+        embedding_func=FakeEmbeddingFunc(),
     )
     content_list = [
         {
@@ -443,23 +512,23 @@ def test_adapter_routes_config_options_to_lightrag_kwargs(tmp_path: Path) -> Non
     raganything_adapter.create_raganything_backend(
         raganything_adapter.RAGAnythingAdapterConfig(
             working_dir=tmp_path / "raganything-storage",
-            config_options={"max_entity_tokens": 256, "max_tokens": 1024},
+            config_options={"max_entity_tokens": 256, "chunk_token_size": 1024},
         ),
         raganything_module=SimpleNamespace(
             RAGAnything=FakeRAGAnything,
             RAGAnythingConfig=FakeRAGAnythingConfig,
         ),
         llm_model_func=lambda *_args, **_kwargs: "llm",
-        embedding_func=lambda *_args, **_kwargs: [0.1],
+        embedding_func=FakeEmbeddingFunc(),
     )
 
     fake_rag = FakeRAGAnything.last_instance
     assert fake_rag is not None
     assert "max_entity_tokens" not in fake_rag.config.kwargs
-    assert "max_tokens" not in fake_rag.config.kwargs
+    assert "chunk_token_size" not in fake_rag.config.kwargs
     assert fake_rag.lightrag_kwargs == {
         "max_entity_tokens": 256,
-        "max_tokens": 1024,
+        "chunk_token_size": 1024,
     }
 
 
@@ -492,6 +561,10 @@ def test_adapter_rejects_non_callable_model_function_inputs(tmp_path: Path) -> N
         {},
         {"llm_model_func": "token string"},
         {"embedding_func": "token string"},
+        {
+            "llm_model_func": lambda *_args, **_kwargs: "llm",
+            "embedding_func": lambda *_args, **_kwargs: [0.1],
+        },
     ]
     for kwargs in invalid_args:
         with pytest.raises(raganything_adapter.RAGAnythingConfigError) as exc_info:
@@ -551,7 +624,7 @@ def test_adapter_initializes_raganything_before_query(tmp_path: Path) -> None:
             RAGAnythingConfig=FakeRAGAnythingConfig,
         ),
         llm_model_func=lambda *_args, **_kwargs: "llm",
-        embedding_func=lambda *_args, **_kwargs: [0.1],
+        embedding_func=FakeEmbeddingFunc(),
     )
 
     query_result = asyncio.run(backend.aquery("What exists?"))
@@ -798,7 +871,7 @@ def test_adapter_wraps_upstream_config_constructor_errors(tmp_path: Path) -> Non
                 RAGAnythingConfig=RejectingRAGAnythingConfig,
             ),
             llm_model_func=lambda *_args, **_kwargs: "llm",
-            embedding_func=lambda *_args, **_kwargs: [0.1],
+            embedding_func=FakeEmbeddingFunc(),
         )
 
     assert exc_info.value.code == "raganything_initialization_failed"
@@ -828,7 +901,7 @@ def test_adapter_wraps_upstream_system_exit_during_construction(
                 RAGAnythingConfig=PlainRAGAnythingConfig,
             ),
             llm_model_func=lambda *_args, **_kwargs: "llm",
-            embedding_func=lambda *_args, **_kwargs: [0.1],
+            embedding_func=FakeEmbeddingFunc(),
         )
 
     assert exc_info.value.code == "raganything_initialization_failed"
@@ -937,7 +1010,7 @@ def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
                 RAGAnythingConfig=FailingRAGAnythingConfig,
             ),
             llm_model_func=lambda *_args, **_kwargs: "llm",
-            embedding_func=lambda *_args, **_kwargs: [0.1],
+            embedding_func=FakeEmbeddingFunc(),
         )
     assert init_exc.value.code == "raganything_initialization_failed"
     assert "secret" not in init_exc.value.message
@@ -951,7 +1024,7 @@ def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
             RAGAnythingConfig=PlainRAGAnythingConfig,
         ),
         llm_model_func=lambda *_args, **_kwargs: "llm",
-        embedding_func=lambda *_args, **_kwargs: [0.1],
+        embedding_func=FakeEmbeddingFunc(),
     )
     with pytest.raises(raganything_adapter.RAGAnythingRuntimeError) as insert_exc:
         asyncio.run(
