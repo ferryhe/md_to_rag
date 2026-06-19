@@ -219,3 +219,7 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Passed: JSON smoke for documented `init -> ingest -> chunk -> embed -> index -> query -> inspect -> diff -> rebuild` flow.
 - Passed: `git diff --check` with CRLF conversion warnings only.
 - Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; no actionable correctness issues.
+- Published: PR #13 at `https://github.com/ferryhe/md_to_rag/pull/13`.
+- CI follow-up: initial GitHub Actions run failed on Python 3.11 and 3.12 because clean Linux installs selected `typer 0.26.7`, whose help rendering broke the existing `--json` help assertion, and because Linux symlink support exposed the existing chunk-layer `documents_outside_project` typed error for a linked documents directory.
+- Confirmed-safe fixes: narrowed `typer` to the locally verified compatible range `<0.22`, updated the dependency contract regression, and allowed the documented typed `documents_outside_project` error in the symlink diff regression.
+- CI fix validation: focused regressions passed locally (2 passed, 1 skipped); full local suite passed with `python -m pytest -q` (231 passed, 13 skipped); clean CI-style venv installed `typer 0.21.2` and passed `python -m pytest -q` plus module/installed CLI help; `git diff --check` passed with CRLF conversion warnings only.

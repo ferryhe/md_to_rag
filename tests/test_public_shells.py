@@ -38,7 +38,7 @@ def test_dependency_bounds_match_public_shell_requirements() -> None:
     dependencies = set(pyproject["project"]["dependencies"])
 
     assert "pydantic>=2.5,<3" in dependencies
-    assert "typer>=0.16,<1" in dependencies
+    assert "typer>=0.16,<0.22" in dependencies
 
 
 def test_api_facade_functions_return_owned_responses(

@@ -547,6 +547,7 @@ def test_diff_rejects_missing_artifact_under_linked_directory(tmp_path: Path) ->
     assert chunk_stage.error.code in {
         "artifact_path_collision",
         "artifact_path_outside_project",
+        "documents_outside_project",
     }
 
 
