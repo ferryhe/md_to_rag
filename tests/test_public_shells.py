@@ -37,6 +37,7 @@ def test_dependency_bounds_match_public_shell_requirements() -> None:
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
     dependencies = set(pyproject["project"]["dependencies"])
 
+    assert "click>=8.0,<8.4" in dependencies
     assert "pydantic>=2.5,<3" in dependencies
     assert "typer>=0.16,<0.22" in dependencies
 

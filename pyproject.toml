@@ -9,6 +9,7 @@ description = "Markdown to RAG artifact CLI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "click>=8.0,<8.4",
     "pydantic>=2.5,<3",
     "typer>=0.16,<0.22",
 ]
