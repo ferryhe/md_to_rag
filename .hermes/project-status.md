@@ -5,14 +5,18 @@ Last updated: 2026-06-19
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/final-docs-ci`
-- Active PR lane: final documentation and CI cleanup
+- Active branch: `codex/version-management-policy`
+- Active PR lane: version management policy and changelog
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: ensure README and final docs describe the implemented state, remove intermediate planning docs, and add CI without changing the public CLI/API/MCP interfaces
+- Current task: add explicit package/release/artifact version management docs without changing public CLI/API/MCP interfaces
 
 ## Current Contract Decisions
 
 - Keep the current public CLI/API/MCP/artifact contract.
+- Current package version: `0.1.0`.
+- Package version sources: `pyproject.toml` and `md_to_rag.__version__`; tests keep them synchronized.
+- Release history entry point: `CHANGELOG.md`.
+- Version and release policy entry point: `docs/versioning.md`.
 - Public CLI command: `md-to-rag`.
 - Public v1 commands: `init`, `ingest`, `chunk`, `embed`, `index`, `query`, `inspect`, `diff`, and `rebuild`.
 - Later compatible commands: none currently planned.
@@ -41,6 +45,16 @@ Last updated: 2026-06-19
 For each PR, required verification includes focused/full checks for touched files plus the Pre-PR Codex Review Gate. For this managed-PR program, the user explicitly authorized on 2026-06-17 that once checks pass and valid Copilot/remote comments are resolved, the controller may merge the PR to `main` and delete that PR's remote/local task branch.
 
 Branch deletion outside this scoped managed-PR program, force-push, history rewrite, broad cleanup, removing unrelated files, or deleting work outside the managed PR completion flow still requires fresh explicit approval.
+
+## Version Management Policy Follow-up
+
+- Scope: add `CHANGELOG.md`, add `docs/versioning.md`, and link the policy from `README.md`.
+- Interface policy: no CLI/API/MCP/artifact contract changes.
+- Passed: `python -m pytest tests/test_public_shells.py::test_package_imports_with_version -q` (1 passed).
+- Passed: `python -m pytest -q` (231 passed, 13 skipped).
+- Passed: `git diff --check` with CRLF conversion warnings only.
+- Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; no introduced correctness issues.
+- Status: ready to commit, push, and open PR from `codex/version-management-policy`.
 
 ## PR1 Verification
 

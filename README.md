@@ -28,6 +28,15 @@ the RAG-Anything backend boundary:
 python -m pip install -e ".[raganything]"
 ```
 
+## Versioning
+
+The current package version is recorded in `pyproject.toml` and mirrored by
+`md_to_rag.__version__`; tests verify that they stay synchronized.
+
+Release history is tracked in `CHANGELOG.md`. Version and release policy,
+including artifact schema versioning and tag/release steps, is documented in
+`docs/versioning.md`.
+
 ## CLI Quickstart
 
 ```bash
