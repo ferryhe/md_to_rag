@@ -153,6 +153,9 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"working_dir": tmp_path / "rag", "config_options": {"passwords": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"authHeaderValue": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"authHeaders": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"auth": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"authentication": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"auth_method": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"cookies": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"githubToken": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"github_token": "secret"}},
@@ -167,6 +170,11 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"working_dir": tmp_path / "rag", "config_options": {"apiTokenValue": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"openaiApiToken": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"openaiTokenValue": "secret"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"authTokenFile": "secret.txt"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"openaiKeyFile": "secret.txt"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"cookies_file": "secret.txt"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"authHeadersFile": "secret.txt"}},
+        {"working_dir": tmp_path / "rag", "config_options": {"githubPatFileName": "secret.txt"}},
         {"working_dir": tmp_path / "rag", "config_options": {"tokenHeaderValue": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"authTokenHeaderValue": "secret"}},
         {"working_dir": tmp_path / "rag", "config_options": {"idTokenHeaderValue": "secret"}},
@@ -180,8 +188,18 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         },
         {
             "working_dir": tmp_path / "rag",
+            "config_options": {"llm_model_kwargs": {"authentication": "Bearer secret"}},
+        },
+        {
+            "working_dir": tmp_path / "rag",
             "config_options": {
                 "llm_model_kwargs": {"headers": "Authorization: Bearer secret"}
+            },
+        },
+        {
+            "working_dir": tmp_path / "rag",
+            "config_options": {
+                "headers": "Accept: application/json\nAuthorization: Bearer secret"
             },
         },
         {
@@ -277,6 +295,15 @@ def test_adapter_config_validates_owned_internal_settings(tmp_path: Path) -> Non
         {"key": "Accept", "value": "application/json"},
         {"headerName": "X-Trace-Id", "headerValue": "trace-1"},
     ]
+
+    portable_header_block = raganything_adapter.RAGAnythingAdapterConfig(
+        working_dir=tmp_path / "rag",
+        config_options={"headers": "Accept: application/json\nX-Trace-Id: trace-1"},
+    )
+    assert (
+        portable_header_block.to_lightrag_kwargs()["headers"]
+        == "Accept: application/json\nX-Trace-Id: trace-1"
+    )
 
 
 def test_adapter_config_options_are_frozen_and_revalidated(tmp_path: Path) -> None:
@@ -398,9 +425,13 @@ def test_adapter_routes_config_options_to_lightrag_kwargs(tmp_path: Path) -> Non
             *,
             config: FakeRAGAnythingConfig,
             lightrag_kwargs: dict[str, Any] | None = None,
+            llm_model_func: Any | None = None,
+            embedding_func: Any | None = None,
         ) -> None:
             self.config = config
             self.lightrag_kwargs = lightrag_kwargs
+            self.llm_model_func = llm_model_func
+            self.embedding_func = embedding_func
             FakeRAGAnything.last_instance = self
 
         async def insert_content_list(self, **_kwargs: Any) -> object:
@@ -418,6 +449,8 @@ def test_adapter_routes_config_options_to_lightrag_kwargs(tmp_path: Path) -> Non
             RAGAnything=FakeRAGAnything,
             RAGAnythingConfig=FakeRAGAnythingConfig,
         ),
+        llm_model_func=lambda *_args, **_kwargs: "llm",
+        embedding_func=lambda *_args, **_kwargs: [0.1],
     )
 
     fake_rag = FakeRAGAnything.last_instance
@@ -456,6 +489,7 @@ def test_adapter_rejects_non_callable_model_function_inputs(tmp_path: Path) -> N
     )
 
     invalid_args = [
+        {},
         {"llm_model_func": "token string"},
         {"embedding_func": "token string"},
     ]
@@ -481,8 +515,16 @@ def test_adapter_initializes_raganything_before_query(tmp_path: Path) -> None:
     class FakeRAGAnything:
         last_instance: "FakeRAGAnything | None" = None
 
-        def __init__(self, *, config: FakeRAGAnythingConfig) -> None:
+        def __init__(
+            self,
+            *,
+            config: FakeRAGAnythingConfig,
+            llm_model_func: Any | None = None,
+            embedding_func: Any | None = None,
+        ) -> None:
             self.config = config
+            self.llm_model_func = llm_model_func
+            self.embedding_func = embedding_func
             self.initialized = False
             self.ensure_calls = 0
             FakeRAGAnything.last_instance = self
@@ -508,6 +550,8 @@ def test_adapter_initializes_raganything_before_query(tmp_path: Path) -> None:
             RAGAnything=FakeRAGAnything,
             RAGAnythingConfig=FakeRAGAnythingConfig,
         ),
+        llm_model_func=lambda *_args, **_kwargs: "llm",
+        embedding_func=lambda *_args, **_kwargs: [0.1],
     )
 
     query_result = asyncio.run(backend.aquery("What exists?"))
@@ -522,6 +566,8 @@ def test_adapter_wraps_json_round_trip_validation_failures(tmp_path: Path) -> No
     from md_to_rag import raganything_adapter
 
     huge_integer = 10**5000
+    recursive_config: dict[str, Any] = {}
+    recursive_config["self"] = recursive_config
 
     with pytest.raises(raganything_adapter.RAGAnythingConfigError) as config_exc:
         raganything_adapter.RAGAnythingAdapterConfig(
@@ -533,6 +579,18 @@ def test_adapter_wraps_json_round_trip_validation_failures(tmp_path: Path) -> No
     formatted_config_error = "".join(traceback.format_exception(config_exc.value))
     assert "ValueError" not in formatted_config_error
     assert "Exceeds the limit" not in formatted_config_error
+
+    with pytest.raises(raganything_adapter.RAGAnythingConfigError) as recursive_config_exc:
+        raganything_adapter.RAGAnythingAdapterConfig(
+            working_dir=tmp_path / "raganything-storage",
+            config_options=recursive_config,
+        )
+
+    assert recursive_config_exc.value.code == "raganything_config_invalid"
+    formatted_recursive_config_error = "".join(
+        traceback.format_exception(recursive_config_exc.value)
+    )
+    assert "RecursionError" not in formatted_recursive_config_error
 
     class FakeRAGAnything:
         async def insert_content_list(self, **_kwargs: Any) -> object:
@@ -561,6 +619,108 @@ def test_adapter_wraps_json_round_trip_validation_failures(tmp_path: Path) -> No
     formatted_content_error = "".join(traceback.format_exception(content_exc.value))
     assert "ValueError" not in formatted_content_error
     assert "Exceeds the limit" not in formatted_content_error
+
+    recursive_content: dict[str, Any] = {"type": "text"}
+    recursive_content["self"] = recursive_content
+    with pytest.raises(raganything_adapter.RAGAnythingConfigError) as recursive_content_exc:
+        asyncio.run(
+            backend.insert_content_list(
+                content_list=[recursive_content],
+                file_path="source/alpha.md",
+                doc_id="doc_alpha",
+            )
+        )
+
+    assert recursive_content_exc.value.code == "raganything_config_invalid"
+    formatted_recursive_content_error = "".join(
+        traceback.format_exception(recursive_content_exc.value)
+    )
+    assert "RecursionError" not in formatted_recursive_content_error
+
+
+def test_adapter_suppresses_invalid_utf8_validation_causes(tmp_path: Path) -> None:
+    from md_to_rag import raganything_adapter
+
+    invalid_text = "\ud800"
+
+    with pytest.raises(raganything_adapter.RAGAnythingConfigError) as config_exc:
+        raganything_adapter.RAGAnythingAdapterConfig(
+            working_dir=tmp_path / "raganything-storage",
+            config_options={"max_entity_tokens": invalid_text},
+        )
+
+    assert config_exc.value.code == "raganything_config_invalid"
+    assert config_exc.value.__cause__ is None
+    assert "UnicodeEncodeError" not in "".join(
+        traceback.format_exception(config_exc.value)
+    )
+
+    class FakeRAGAnything:
+        async def insert_content_list(self, **_kwargs: Any) -> object:
+            return object()
+
+        async def aquery(self, _question: str, *, mode: str) -> str:
+            return mode
+
+    backend = raganything_adapter.RAGAnythingBackend(
+        FakeRAGAnything(),
+        raganything_adapter.RAGAnythingAdapterConfig(
+            working_dir=tmp_path / "raganything-storage"
+        ),
+    )
+
+    with pytest.raises(raganything_adapter.RAGAnythingConfigError) as content_exc:
+        asyncio.run(
+            backend.insert_content_list(
+                content_list=[{"type": "text", "value": invalid_text}],
+                file_path="source/alpha.md",
+                doc_id="doc_alpha",
+            )
+        )
+
+    assert content_exc.value.code == "raganything_config_invalid"
+    assert content_exc.value.__cause__ is None
+    assert "UnicodeEncodeError" not in "".join(
+        traceback.format_exception(content_exc.value)
+    )
+
+    with pytest.raises(raganything_adapter.RAGAnythingConfigError) as query_exc:
+        asyncio.run(backend.aquery(invalid_text))
+
+    assert query_exc.value.code == "raganything_config_invalid"
+    assert query_exc.value.__cause__ is None
+    assert "UnicodeEncodeError" not in "".join(
+        traceback.format_exception(query_exc.value)
+    )
+
+
+def test_adapter_wraps_query_result_serialization_failures(tmp_path: Path) -> None:
+    from md_to_rag import raganything_adapter
+
+    huge_integer = 10**5000
+
+    class BadQueryRAGAnything:
+        async def insert_content_list(self, **_kwargs: Any) -> object:
+            return object()
+
+        async def aquery(self, _question: str, *, mode: str) -> dict[str, Any]:
+            return {"value": huge_integer, "mode": mode}
+
+    backend = raganything_adapter.RAGAnythingBackend(
+        BadQueryRAGAnything(),
+        raganything_adapter.RAGAnythingAdapterConfig(
+            working_dir=tmp_path / "raganything-storage"
+        ),
+    )
+
+    with pytest.raises(raganything_adapter.RAGAnythingRuntimeError) as exc_info:
+        asyncio.run(backend.aquery("What exists?"))
+
+    assert exc_info.value.code == "raganything_query_result_invalid"
+    assert exc_info.value.__cause__ is None
+    formatted_error = "".join(traceback.format_exception(exc_info.value))
+    assert "ValueError" not in formatted_error
+    assert "Exceeds the limit" not in formatted_error
 
 
 def test_adapter_suppresses_query_result_validation_causes(tmp_path: Path) -> None:
@@ -637,10 +797,45 @@ def test_adapter_wraps_upstream_config_constructor_errors(tmp_path: Path) -> Non
                 RAGAnything=UnusedRAGAnything,
                 RAGAnythingConfig=RejectingRAGAnythingConfig,
             ),
+            llm_model_func=lambda *_args, **_kwargs: "llm",
+            embedding_func=lambda *_args, **_kwargs: [0.1],
         )
 
     assert exc_info.value.code == "raganything_initialization_failed"
     assert "unexpected keyword" not in exc_info.value.message
+
+
+def test_adapter_wraps_upstream_system_exit_during_construction(
+    tmp_path: Path,
+) -> None:
+    from md_to_rag import raganything_adapter
+
+    class PlainRAGAnythingConfig:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    class ExitingRAGAnything:
+        def __init__(self, **_kwargs: Any) -> None:
+            raise SystemExit("ENTITY_TYPES leaked backend exit")
+
+    with pytest.raises(raganything_adapter.RAGAnythingRuntimeError) as exc_info:
+        raganything_adapter.create_raganything_backend(
+            raganything_adapter.RAGAnythingAdapterConfig(
+                working_dir=tmp_path / "raganything-storage"
+            ),
+            raganything_module=SimpleNamespace(
+                RAGAnything=ExitingRAGAnything,
+                RAGAnythingConfig=PlainRAGAnythingConfig,
+            ),
+            llm_model_func=lambda *_args, **_kwargs: "llm",
+            embedding_func=lambda *_args, **_kwargs: [0.1],
+        )
+
+    assert exc_info.value.code == "raganything_initialization_failed"
+    assert exc_info.value.__cause__ is None
+    formatted_error = "".join(traceback.format_exception(exc_info.value))
+    assert "SystemExit" not in formatted_error
+    assert "ENTITY_TYPES" not in formatted_error
 
 
 def test_adapter_wraps_backend_method_lookup_failures(tmp_path: Path) -> None:
@@ -667,6 +862,38 @@ def test_adapter_wraps_backend_method_lookup_failures(tmp_path: Path) -> None:
     assert "secret" not in formatted_error
 
 
+def test_adapter_wraps_upstream_system_exit_during_query_initialization(
+    tmp_path: Path,
+) -> None:
+    from md_to_rag import raganything_adapter
+
+    class ExitingInitializerRAGAnything:
+        async def insert_content_list(self, **_kwargs: Any) -> object:
+            return object()
+
+        def _ensure_lightrag_initialized(self) -> None:
+            raise SystemExit("ENTITY_TYPES leaked backend exit")
+
+        async def aquery(self, _question: str, *, mode: str) -> str:
+            return mode
+
+    backend = raganything_adapter.RAGAnythingBackend(
+        ExitingInitializerRAGAnything(),
+        raganything_adapter.RAGAnythingAdapterConfig(
+            working_dir=tmp_path / "raganything-storage"
+        ),
+    )
+
+    with pytest.raises(raganything_adapter.RAGAnythingRuntimeError) as exc_info:
+        asyncio.run(backend.aquery("What exists?"))
+
+    assert exc_info.value.code == "raganything_initialization_failed"
+    assert exc_info.value.__cause__ is None
+    formatted_error = "".join(traceback.format_exception(exc_info.value))
+    assert "SystemExit" not in formatted_error
+    assert "ENTITY_TYPES" not in formatted_error
+
+
 def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
     tmp_path: Path,
 ) -> None:
@@ -681,8 +908,16 @@ def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
             pass
 
     class FailingRAGAnything:
-        def __init__(self, *, config: PlainRAGAnythingConfig) -> None:
+        def __init__(
+            self,
+            *,
+            config: PlainRAGAnythingConfig,
+            llm_model_func: Any | None = None,
+            embedding_func: Any | None = None,
+        ) -> None:
             self.config = config
+            self.llm_model_func = llm_model_func
+            self.embedding_func = embedding_func
 
         def insert_content_list(self, **_kwargs: Any) -> None:
             raise RuntimeError("upstream insert leaked secret")
@@ -701,6 +936,8 @@ def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
                 RAGAnything=FailingRAGAnything,
                 RAGAnythingConfig=FailingRAGAnythingConfig,
             ),
+            llm_model_func=lambda *_args, **_kwargs: "llm",
+            embedding_func=lambda *_args, **_kwargs: [0.1],
         )
     assert init_exc.value.code == "raganything_initialization_failed"
     assert "secret" not in init_exc.value.message
@@ -713,6 +950,8 @@ def test_adapter_wraps_upstream_failures_without_exposing_backend_messages(
             RAGAnything=FailingRAGAnything,
             RAGAnythingConfig=PlainRAGAnythingConfig,
         ),
+        llm_model_func=lambda *_args, **_kwargs: "llm",
+        embedding_func=lambda *_args, **_kwargs: [0.1],
     )
     with pytest.raises(raganything_adapter.RAGAnythingRuntimeError) as insert_exc:
         asyncio.run(

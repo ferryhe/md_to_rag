@@ -32,8 +32,11 @@ _SECRET_KEY_PATTERN = re.compile(
 )
 _SECRET_COMPACT_KEYS = {
     "apikey",
+    "auth",
     "authheaders",
     "authheader",
+    "authentication",
+    "authmethod",
     "authorization",
     "bearer",
     "cookie",
@@ -84,7 +87,20 @@ _NON_SECRET_COMPACT_KEYS = {
     "tokenlimit",
     "tokensize",
 }
-_SECRET_QUALIFIER_SUFFIXES = {"header", "headers", "path", "paths", "value", "values"}
+_SECRET_QUALIFIER_SUFFIXES = {
+    "file",
+    "filename",
+    "filenames",
+    "files",
+    "header",
+    "headers",
+    "name",
+    "names",
+    "path",
+    "paths",
+    "value",
+    "values",
+}
 _SECRET_HEADER_NAME_PARTS = {
     "authorization",
     "bearer",
@@ -233,6 +249,11 @@ class RAGAnythingBackend:
                 await result
         except RAGAnythingAdapterError:
             raise
+        except SystemExit:
+            raise RAGAnythingRuntimeError(
+                "raganything_insert_failed",
+                "Could not insert content into optional RAG-Anything backend.",
+            ) from None
         except Exception:
             raise RAGAnythingRuntimeError(
                 "raganything_insert_failed",
@@ -252,6 +273,11 @@ class RAGAnythingBackend:
             answer = _normalized_query_answer(result)
         except RAGAnythingAdapterError:
             raise
+        except SystemExit:
+            raise RAGAnythingRuntimeError(
+                "raganything_query_failed",
+                "Could not query optional RAG-Anything backend.",
+            ) from None
         except Exception:
             raise RAGAnythingRuntimeError(
                 "raganything_query_failed",
@@ -269,6 +295,11 @@ class RAGAnythingBackend:
                 result = await result
         except RAGAnythingAdapterError:
             raise
+        except SystemExit:
+            raise RAGAnythingRuntimeError(
+                "raganything_initialization_failed",
+                "Could not initialize optional RAG-Anything backend.",
+            ) from None
         except Exception:
             raise RAGAnythingRuntimeError(
                 "raganything_initialization_failed",
@@ -283,6 +314,11 @@ class RAGAnythingBackend:
     def _require_callable(self, name: str) -> None:
         try:
             value = getattr(self._rag, name, None)
+        except SystemExit:
+            raise RAGAnythingDependencyError(
+                "raganything_interface_invalid",
+                f"RAG-Anything backend must expose {name}(...).",
+            ) from None
         except Exception:
             raise RAGAnythingDependencyError(
                 "raganything_interface_invalid",
@@ -302,24 +338,27 @@ def create_raganything_backend(
     llm_model_func: Any | None = None,
     embedding_func: Any | None = None,
 ) -> RAGAnythingBackend:
-    _validate_optional_callable(llm_model_func, "llm_model_func")
-    _validate_optional_callable(embedding_func, "embedding_func")
     module = _load_raganything_module(raganything_module)
     config_cls = _required_attribute(module, "RAGAnythingConfig")
     rag_cls = _required_attribute(module, "RAGAnything")
+    _validate_required_callable(llm_model_func, "llm_model_func")
+    _validate_required_callable(embedding_func, "embedding_func")
     try:
         upstream_config = config_cls(**config.to_raganything_config_kwargs())
         rag_kwargs = {"config": upstream_config}
         lightrag_kwargs = config.to_lightrag_kwargs()
         if lightrag_kwargs:
             rag_kwargs["lightrag_kwargs"] = lightrag_kwargs
-        if llm_model_func is not None:
-            rag_kwargs["llm_model_func"] = llm_model_func
-        if embedding_func is not None:
-            rag_kwargs["embedding_func"] = embedding_func
+        rag_kwargs["llm_model_func"] = llm_model_func
+        rag_kwargs["embedding_func"] = embedding_func
         rag = rag_cls(**rag_kwargs)
     except RAGAnythingAdapterError:
         raise
+    except SystemExit:
+        raise RAGAnythingRuntimeError(
+            "raganything_initialization_failed",
+            "Could not initialize optional RAG-Anything backend.",
+        ) from None
     except Exception:
         raise RAGAnythingRuntimeError(
             "raganything_initialization_failed",
@@ -350,6 +389,11 @@ def _load_raganything_module(raganything_module: Any | None) -> Any:
 def _required_attribute(module: Any, name: str) -> Any:
     try:
         value = getattr(module, name, None)
+    except SystemExit:
+        raise RAGAnythingDependencyError(
+            "raganything_interface_invalid",
+            "Optional RAG-Anything dependency does not expose the required adapter interface.",
+        ) from None
     except Exception:
         raise RAGAnythingDependencyError(
             "raganything_interface_invalid",
@@ -363,8 +407,8 @@ def _required_attribute(module: Any, name: str) -> Any:
     return value
 
 
-def _validate_optional_callable(value: Any | None, field_name: str) -> None:
-    if value is not None and not callable(value):
+def _validate_required_callable(value: Any | None, field_name: str) -> None:
+    if not callable(value):
         _raise_config(f"RAG-Anything {field_name} must be callable.")
 
 
@@ -410,7 +454,7 @@ def _normalized_query_answer(value: Any) -> str:
                 ensure_ascii=False,
                 allow_nan=False,
             )
-        except RAGAnythingConfigError as error:
+        except (RAGAnythingConfigError, TypeError, ValueError):
             raise RAGAnythingRuntimeError(
                 "raganything_query_result_invalid",
                 "RAG-Anything query result could not be normalized to owned data.",
@@ -441,41 +485,53 @@ def _validated_json_mapping(
     field_name: str,
     *,
     enforce_config_key_policy: bool = True,
+    _active_ids: set[int] | None = None,
 ) -> dict[str, JsonValue]:
     if not isinstance(value, Mapping):
         _raise_config(f"RAG-Anything {field_name} must be a JSON object.")
+    active_ids = set() if _active_ids is None else _active_ids
+    value_id = id(value)
+    if value_id in active_ids:
+        _raise_config(f"RAG-Anything {field_name} must be portable JSON.")
+    active_ids.add(value_id)
     validated: dict[str, JsonValue] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            _raise_config(f"RAG-Anything {field_name} keys must be strings.")
-        _validate_string(key, f"{field_name} key")
-        normalized_key: str | None = None
-        if enforce_config_key_policy:
-            normalized_key = _normalized_key(key)
-            if normalized_key in _MANAGED_CONFIG_KEYS:
-                _raise_config(f"RAG-Anything config option cannot override managed field: {key}.")
-            if _is_secret_config_key(normalized_key):
-                _raise_config("RAG-Anything config options must not include secrets.")
-        is_header_container = (
-            enforce_config_key_policy
-            and normalized_key is not None
-            and _is_header_config_key(normalized_key)
-        )
-        validated_item = _validated_json_value(
-            item,
-            f"{field_name}.{key}",
-            enforce_config_key_policy=enforce_config_key_policy and not is_header_container,
-        )
-        if is_header_container and _contains_secret_header_value(validated_item):
-            _raise_config("RAG-Anything config options must not include secrets.")
-        validated[key] = validated_item
     try:
-        return json.loads(json.dumps(validated, ensure_ascii=False, allow_nan=False))
-    except (TypeError, ValueError):
-        raise RAGAnythingConfigError(
-            "raganything_config_invalid",
-            f"RAG-Anything {field_name} must be portable JSON.",
-        ) from None
+        for key, item in value.items():
+            if not isinstance(key, str):
+                _raise_config(f"RAG-Anything {field_name} keys must be strings.")
+            _validate_string(key, f"{field_name} key")
+            normalized_key: str | None = None
+            if enforce_config_key_policy:
+                normalized_key = _normalized_key(key)
+                if normalized_key in _MANAGED_CONFIG_KEYS:
+                    _raise_config(
+                        f"RAG-Anything config option cannot override managed field: {key}."
+                    )
+                if _is_secret_config_key(normalized_key):
+                    _raise_config("RAG-Anything config options must not include secrets.")
+            is_header_container = (
+                enforce_config_key_policy
+                and normalized_key is not None
+                and _is_header_config_key(normalized_key)
+            )
+            validated_item = _validated_json_value(
+                item,
+                f"{field_name}.{key}",
+                enforce_config_key_policy=enforce_config_key_policy and not is_header_container,
+                _active_ids=active_ids,
+            )
+            if is_header_container and _contains_secret_header_value(validated_item):
+                _raise_config("RAG-Anything config options must not include secrets.")
+            validated[key] = validated_item
+        try:
+            return json.loads(json.dumps(validated, ensure_ascii=False, allow_nan=False))
+        except (TypeError, ValueError):
+            raise RAGAnythingConfigError(
+                "raganything_config_invalid",
+                f"RAG-Anything {field_name} must be portable JSON.",
+            ) from None
+    finally:
+        active_ids.remove(value_id)
 
 
 def _validated_json_value(
@@ -483,6 +539,7 @@ def _validated_json_value(
     field_name: str,
     *,
     enforce_config_key_policy: bool = True,
+    _active_ids: set[int] | None = None,
 ) -> JsonValue:
     if isinstance(value, str):
         _validate_string(value, field_name)
@@ -492,28 +549,47 @@ def _validated_json_value(
     if isinstance(value, float) and isfinite(value):
         return value
     if isinstance(value, list):
-        return [
-            _validated_json_value(
-                item,
-                f"{field_name}[]",
-                enforce_config_key_policy=enforce_config_key_policy,
-            )
-            for item in value
-        ]
+        active_ids = set() if _active_ids is None else _active_ids
+        value_id = id(value)
+        if value_id in active_ids:
+            _raise_config(f"RAG-Anything {field_name} must be portable JSON.")
+        active_ids.add(value_id)
+        try:
+            return [
+                _validated_json_value(
+                    item,
+                    f"{field_name}[]",
+                    enforce_config_key_policy=enforce_config_key_policy,
+                    _active_ids=active_ids,
+                )
+                for item in value
+            ]
+        finally:
+            active_ids.remove(value_id)
     if isinstance(value, tuple):
-        return [
-            _validated_json_value(
-                item,
-                f"{field_name}[]",
-                enforce_config_key_policy=enforce_config_key_policy,
-            )
-            for item in value
-        ]
+        active_ids = set() if _active_ids is None else _active_ids
+        value_id = id(value)
+        if value_id in active_ids:
+            _raise_config(f"RAG-Anything {field_name} must be portable JSON.")
+        active_ids.add(value_id)
+        try:
+            return [
+                _validated_json_value(
+                    item,
+                    f"{field_name}[]",
+                    enforce_config_key_policy=enforce_config_key_policy,
+                    _active_ids=active_ids,
+                )
+                for item in value
+            ]
+        finally:
+            active_ids.remove(value_id)
     if isinstance(value, Mapping):
         return _validated_json_mapping(
             value,
             field_name,
             enforce_config_key_policy=enforce_config_key_policy,
+            _active_ids=_active_ids,
         )
     _raise_config(f"RAG-Anything {field_name} must be portable JSON.")
 
@@ -527,11 +603,11 @@ def _validate_non_empty_string(value: str, field_name: str) -> None:
 def _validate_string(value: str, field_name: str) -> None:
     try:
         value.encode("utf-8")
-    except UnicodeEncodeError as error:
+    except UnicodeEncodeError:
         raise RAGAnythingConfigError(
             "raganything_config_invalid",
             f"RAG-Anything {field_name} must be valid UTF-8.",
-        ) from error
+        ) from None
 
 
 def _normalized_key(value: str) -> str:
@@ -587,11 +663,16 @@ def _contains_secret_header_value(value: JsonValue) -> bool:
 
 
 def _looks_like_secret_header_string(value: str) -> bool:
-    header_name, separator, _header_value = value.partition(":")
-    if separator and _is_secret_header_name(header_name):
-        return True
-    normalized_value = value.strip().lower()
-    return normalized_value.startswith(("bearer ", "basic ", "jwt "))
+    for line in value.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        normalized_line = line.strip()
+        if not normalized_line:
+            continue
+        header_name, separator, _header_value = normalized_line.partition(":")
+        if separator and _is_secret_header_name(header_name):
+            return True
+        if normalized_line.lower().startswith(("bearer ", "basic ", "jwt ")):
+            return True
+    return False
 
 
 def _is_secret_header_name(value: str) -> bool:
