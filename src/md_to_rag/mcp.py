@@ -11,6 +11,8 @@ _TOOL_DESCRIPTIONS = {
     CommandName.INDEX: "Create index artifact metadata from embedding artifacts.",
     CommandName.QUERY: "Return deterministic local retrieval results from index artifacts.",
     CommandName.INSPECT: "Inspect artifact status metadata.",
+    CommandName.DIFF: "Report artifact-chain drift without mutating artifacts.",
+    CommandName.REBUILD: "Run ingest, chunk, embed, and index with default artifact paths.",
 }
 
 

@@ -3,15 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from .chunk import chunk_project
+from .diff import diff_project
 from .embed import embed_project
 from .index import index_project
 from .ingest import ingest_project
 from .manifest import ManifestError, initialize_project, inspect_project
 from .query import query_project
+from .rebuild import rebuild_project
 from .schemas import (
     ChunkResponse,
     CommandName,
     CommandStatus,
+    DiffResponse,
     EmptyResponseData,
     EmbedResponse,
     IndexResponse,
@@ -19,6 +22,7 @@ from .schemas import (
     IngestResponse,
     InspectResponse,
     QueryResponse,
+    RebuildResponse,
 )
 
 
@@ -110,6 +114,30 @@ def inspect(artifact: str | Path | None = None) -> InspectResponse:
         status=result.status,
         message=result.message,
         artifact_path=result.data.manifest_path,
+        error=result.error,
+        data=result.data,
+    )
+
+
+def diff(project: str | Path | None = None) -> DiffResponse:
+    result = diff_project(project)
+    return DiffResponse(
+        command=CommandName.DIFF,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
+        error=result.error,
+        data=result.data,
+    )
+
+
+def rebuild(project: str | Path | None = None) -> RebuildResponse:
+    result = rebuild_project(project)
+    return RebuildResponse(
+        command=CommandName.REBUILD,
+        status=result.status,
+        message=result.message,
+        artifact_path=result.artifact_path,
         error=result.error,
         data=result.data,
     )

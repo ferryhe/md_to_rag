@@ -97,5 +97,25 @@ def inspect_command(
     _emit(api.inspect(artifact=artifact), json_output)
 
 
+@app.command("diff")
+def diff_command(
+    project: Path | None = typer.Argument(None, help="Project path to diff."),
+    json_output: bool = typer.Option(False, "--json", help="Emit a stable JSON response."),
+) -> None:
+    """Report artifact-chain drift without mutating artifacts."""
+
+    _emit(api.diff(project=project), json_output)
+
+
+@app.command("rebuild")
+def rebuild_command(
+    project: Path | None = typer.Argument(None, help="Project path to rebuild."),
+    json_output: bool = typer.Option(False, "--json", help="Emit a stable JSON response."),
+) -> None:
+    """Run ingest, chunk, embed, and index with default artifact paths."""
+
+    _emit(api.rebuild(project=project), json_output)
+
+
 def main() -> None:
     app(prog_name="md-to-rag")

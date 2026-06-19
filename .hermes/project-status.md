@@ -5,17 +5,17 @@ Last updated: 2026-06-18
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/index-query-artifacts`
-- Active PR lane: PR7 native `index` and `query` implementation
+- Active branch: `codex/diff-rebuild-artifacts`
+- Active PR lane: PR8 compatible `diff` and `rebuild`
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: PR7 native `index` and `query`; preserve current CLI/API/MCP contracts and merged `ingest`/`chunk`/`embed` behavior
+- Current task: PR8 compatible `diff` and `rebuild`; preserve current CLI/API/MCP contracts and merged `ingest`/`chunk`/`embed`/`index`/`query` behavior
 
 ## Current Contract Decisions
 
 - Keep the current public CLI/API/MCP/artifact contract.
 - Public CLI command: `md-to-rag`.
-- Public v1 commands: `init`, `ingest`, `chunk`, `embed`, `index`, `query`, and `inspect`.
-- Later compatible commands: `diff` and `rebuild`.
+- Public v1 commands: `init`, `ingest`, `chunk`, `embed`, `index`, `query`, `inspect`, `diff`, and `rebuild`.
+- Later compatible commands: none currently planned; PR9 is limited to an optional internal RAG-Anything backend.
 - RAG-Anything is optional internal adapter/backend only.
 - Optional dependency target: `raganything>=1.3.1,<2.0`.
 - Internal adapter touchpoints to document: `RAGAnythingConfig`, `insert_content_list(...)`, and `aquery(...)`.
@@ -32,8 +32,8 @@ Last updated: 2026-06-18
 | PR4a | `codex/ingest-hardening-followup` | Merged (#7) | `ingest` hardening for portable paths and artifact write boundaries. |
 | PR5 | `codex/chunk-documents` | Merged (#8) | `chunk`. |
 | PR6 | `codex/embed-artifacts` | Merged (#9) | `embed` and cache/profile behavior. |
-| PR7 | `codex/index-query-artifacts` | In progress | Native `index` and `query`. |
-| PR8 | TBD | Queued | Compatible `diff` and `rebuild`. |
+| PR7 | `codex/index-query-artifacts` | Merged (#10) | Native `index` and `query`. |
+| PR8 | `codex/diff-rebuild-artifacts` | In progress | Compatible `diff` and `rebuild`. |
 | PR9 | TBD | Queued | Optional internal RAG-Anything backend. |
 
 ## Completion Policy
@@ -181,4 +181,13 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - Resolved third follow-up PR7 Pre-PR gate finding: successful `query` now updates the manifest query command status so `inspect` reports `query` as implemented/ok without persisting the query text.
 - PR7 validation so far: focused gate regressions for malformed chunk IDs, chunk source-path error classification, stripped index citations, missing embedding chunk provenance, empty-index query, chunk metadata/provenance drift, index-time chunk metadata/provenance drift, forged embedding provenance identity fields, non-empty unhydrated query artifacts, linked embeddings, non-UTF-8 status artifact paths, linked project root embeddings, reserved index provenance keys, empty-index profile/dimensions recovery, Unicode metadata scoring, truncated empty artifact rejection, non-UTF-8 embeddings path rejection, and query manifest status updates passed or skipped where symlink creation is unavailable; `python -m pytest tests/test_index_query_artifacts.py::test_index_allows_explicit_embeddings_under_linked_project_root tests/test_index_query_artifacts.py::test_index_rejects_linked_embeddings_input tests/test_index_query_artifacts.py::test_index_rejects_reserved_index_provenance_keys_before_writing_index -q` (3 passed, 1 skipped), `python -m pytest tests/test_index_query_artifacts.py::test_index_recovers_empty_embedding_chunks_path_from_manifest tests/test_index_query_artifacts.py::test_query_matches_unicode_metadata_when_body_is_ascii -q` (2 passed), `python -m pytest tests/test_index_query_artifacts.py::test_index_rejects_truncated_empty_artifacts_against_nonempty_embed_status tests/test_index_query_artifacts.py::test_index_rejects_non_utf8_embeddings_path_before_json_serialization -q` (2 passed), `python -m pytest tests/test_index_query_artifacts.py::test_query_updates_manifest_status_for_inspect -q` (1 passed), `python -m pytest tests/test_index_query_artifacts.py -q` (57 passed, 1 skipped), `python -m pytest tests/test_index_query_artifacts.py tests/test_public_shells.py tests/test_embed_artifacts.py -q` (107 passed, 1 skipped), `python -m pytest -q` (168 passed, 12 skipped), CLI help checks for installed `md-to-rag` and every `python -m md_to_rag` command, and installed CLI temp `init -> ingest -> chunk -> embed -> index -> index -> query -> inspect` JSON smoke with idempotent second `index`.
 - Passed: PR7 Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`, and `npx.ps1` is blocked by PowerShell execution policy.
-- Required next: commit, push, open the PR, then check GitHub checks and remote review/Copilot comments.
+- Published: PR #10 at `https://github.com/ferryhe/md_to_rag/pull/10`.
+- Resolved PR #10 remote feedback: Copilot reviewed 10 of 10 changed files and generated no comments; thread-aware review checks found no conversation comments, reviews requiring action, or review threads; no GitHub checks are configured for the branch.
+- Merged: PR #10 squash-merged to `main` at `ce74ce7`.
+- Cleanup: remote task branch `codex/index-query-artifacts` was deleted by GitHub merge cleanup; local task branch was removed when the merge workflow returned to `main`.
+- PR8 scope: compatible `diff` should inspect current project artifacts and report deterministic project-local staleness/drift without mutating artifacts; compatible `rebuild` should orchestrate implemented `ingest -> chunk -> embed -> index` steps with typed JSON-safe summary output, stopping on typed errors and preserving current CLI/API/MCP contracts.
+- PR8 implementation: branch `codex/diff-rebuild-artifacts` was created from latest `main` at `ce74ce7`, and worker subagent `Dewey` was dispatched to implement scoped code/tests while the controller owns ledger, review gates, PR publication, remote feedback, merge, and cleanup.
+- PR8 controller review fixes: spec review found no issues; code-quality review and repeated Pre-PR Codex Review Gate passes found valid edge cases around artifact ownership, legacy ingest `source_path` backfill, explicit project resolution, local embedding profile replay, unsupported external embedding providers, legacy default source compatibility, legacy doc_to_md manifest replay including manifests whose Markdown outputs live outside `source/`, explicit empty local-hash profile options, read-only `diff` inspect/manifest status, partial rebuild drift classification, non-portable default source rejection including drive-rooted, backslash, and non-UTF-8 paths, recorded input-path replay for `chunk`/`embed`/`index` diff stages, nested-project source rejection before diff/rebuild including legacy fallback paths, narrowed legacy Markdown source replay, typed invalid replay-profile errors, missing-embeddings diff with recorded local profiles, generated-artifact source rejection during diff, ownership checks for missing artifacts, drifted legacy source-manifest rejection before replay, and linked legacy source-manifest ownership checks before reads. Confirmed-safe fixes and regressions were applied.
+- PR8 validation so far: legacy source/profile replay, diff manifest-status, partial rebuild drift, non-portable/rooted/backslash/non-UTF-8 default source, recorded stage input-path, nested-project source for diff/rebuild including legacy fallback, no-widening legacy Markdown source, invalid replay-profile, missing-embeddings recorded-profile, generated-artifact source, missing linked-artifact ownership, drifted legacy source-manifest, and linked legacy source-manifest regressions passed or skipped where symlink creation is unavailable; `python -m pytest tests/test_diff_rebuild_artifacts.py::test_diff_and_rebuild_reject_linked_legacy_source_manifest_rows -q` (1 passed); `python -m pytest tests/test_diff_rebuild_artifacts.py tests/test_public_shells.py tests/test_ingest_documents.py -q` (99 passed, 12 skipped); `python -m pytest -q` (211 passed, 13 skipped); installed and module CLI help checks for every command passed; installed CLI JSON smoke `init -> rebuild -> rebuild -> diff -> inspect` passed; `git diff --check` passed with CRLF conversion warnings only.
+- Passed: PR8 Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; native `codex.exe` remains blocked by `Access is denied`, and the final gate reported no introduced correctness issues.
+- Required next: commit, push, open PR8, and check GitHub checks plus remote review/Copilot comments.

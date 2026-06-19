@@ -13,11 +13,13 @@ from md_to_rag.schemas import (
     CommandName,
     CommandResponse,
     CommandStatus,
+    DiffResponse,
     EmbedResponse,
     IndexResponse,
     InitResponse,
     InspectResponse,
     QueryResponse,
+    RebuildResponse,
 )
 
 
@@ -56,6 +58,8 @@ def test_api_facade_functions_return_owned_responses(
         "embed": lambda: api.embed(chunks=project / "chunks" / "chunks.jsonl"),
         "index": lambda: api.index(embeddings=project / "embeddings" / "embeddings.jsonl"),
         "query": lambda: api.query("What is indexed?"),
+        "diff": lambda: api.diff(),
+        "rebuild": lambda: api.rebuild(),
         "inspect": lambda: api.inspect(artifact=project),
     }
 
@@ -446,6 +450,8 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
     assert output_titles[CommandName.INDEX] == "IndexResponse"
     assert output_titles[CommandName.QUERY] == "QueryResponse"
     assert output_titles[CommandName.INSPECT] == "InspectResponse"
+    assert output_titles[CommandName.DIFF] == "DiffResponse"
+    assert output_titles[CommandName.REBUILD] == "RebuildResponse"
     for command in set(CommandName) - {
         CommandName.INIT,
         CommandName.INGEST,
@@ -454,6 +460,8 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
         CommandName.INDEX,
         CommandName.QUERY,
         CommandName.INSPECT,
+        CommandName.DIFF,
+        CommandName.REBUILD,
     }:
         assert output_titles[command] == "CommandResponse"
 
@@ -533,6 +541,20 @@ def test_mcp_tool_listing_uses_owned_schemas() -> None:
         "QueryErrorData",
         "QueryResponseData",
     }
+    diff_tool = next(tool for tool in tools if tool.command is CommandName.DIFF)
+    diff_data_options = diff_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in diff_data_options} == {
+        "DiffErrorData",
+        "DiffResponseData",
+        "EmptyResponseData",
+    }
+    rebuild_tool = next(tool for tool in tools if tool.command is CommandName.REBUILD)
+    rebuild_data_options = rebuild_tool.output_schema["properties"]["data"]["anyOf"]
+    assert {option["$ref"].split("/")[-1] for option in rebuild_data_options} == {
+        "EmptyResponseData",
+        "RebuildErrorData",
+        "RebuildResponseData",
+    }
 
 
 def test_md_to_rag_help_surface() -> None:
@@ -591,13 +613,17 @@ def test_embed_json_output_uses_real_response_when_chunks_exist(tmp_path: Path) 
 
 def test_index_query_missing_manifest_json_is_backend_neutral() -> None:
     command_args = {
+        "diff": ["diff", "--json"],
         "index": ["index", "--json"],
         "query": ["query", "What artifacts exist?", "--json"],
+        "rebuild": ["rebuild", "--json"],
     }
 
     assert set(command_args) == {
+        "diff",
         "index",
         "query",
+        "rebuild",
     }
     for command, args in command_args.items():
         result = runner.invoke(app, args, prog_name="md-to-rag")
@@ -631,6 +657,22 @@ def test_index_query_responses_reject_unowned_payload_shapes() -> None:
     with pytest.raises(ValidationError):
         QueryResponse(
             command=CommandName.QUERY,
+            status=CommandStatus.OK,
+            message="bad payload",
+            data={"backend_object": object()},
+        )
+
+    with pytest.raises(ValidationError):
+        DiffResponse(
+            command=CommandName.DIFF,
+            status=CommandStatus.OK,
+            message="bad payload",
+            data={"backend_object": object()},
+        )
+
+    with pytest.raises(ValidationError):
+        RebuildResponse(
+            command=CommandName.REBUILD,
             status=CommandStatus.OK,
             message="bad payload",
             data={"backend_object": object()},

@@ -292,11 +292,12 @@ def _normalized_command_status(
             data=existing_status.data if existing_status else {},
         )
 
-    if command is CommandName.INSPECT:
+    if command in {CommandName.INSPECT, CommandName.DIFF}:
+        command_title = command.value.title()
         return ManifestCommandStatus(
             command=command,
             status=CommandStatus.OK,
-            message="Inspect available.",
+            message=f"{command_title} available.",
             artifact_path=MANIFEST_FILENAME,
             updated_at=existing_status.updated_at if existing_status else default_updated_at,
             data=existing_status.data if existing_status else {},

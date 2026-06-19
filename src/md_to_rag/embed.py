@@ -109,6 +109,24 @@ class DeterministicHashEmbeddingProvider:
         return vector
 
 
+class _RecordedProfileDeterministicHashEmbeddingProvider(
+    DeterministicHashEmbeddingProvider
+):
+    def __init__(self, profile: dict[str, Any]) -> None:
+        recorded_profile = json.loads(_json_dumps_canonical(profile))
+        super().__init__(
+            provider=recorded_profile["provider"],
+            model=recorded_profile["model"],
+            dimensions=recorded_profile["dimensions"],
+            version=recorded_profile["version"],
+            options=recorded_profile.get("options", {}),
+        )
+        object.__setattr__(self, "_recorded_profile", recorded_profile)
+
+    def profile(self) -> dict[str, Any]:
+        return json.loads(_json_dumps_canonical(self._recorded_profile))
+
+
 class EmbedInputError(Exception):
     def __init__(
         self,
