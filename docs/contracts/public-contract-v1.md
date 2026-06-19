@@ -1,11 +1,14 @@
 # md_to_rag Public Contract v1
 
-Status: frozen for PR1 review
-Date: 2026-06-17
+Status: active
+Date: 2026-06-19
 
 ## Scope
 
-This contract freezes the public md_to_rag surface before runtime implementation. PR1 is documentation-only and must not implement Python package, CLI, API, MCP, or backend behavior.
+This contract describes the public md_to_rag surface after the Markdown-to-RAG
+artifact pipeline implementation. Runtime internals may evolve, but the public
+CLI, Python API, MCP metadata, artifacts, and response envelopes are owned by
+md_to_rag and must remain backend-neutral.
 
 md_to_rag owns the Markdown-to-RAG artifact contract for this pipeline:
 
@@ -19,7 +22,7 @@ Sibling repositories integrate through files, manifests, and tool specs only.
 
 The public command is `md-to-rag`.
 
-Frozen v1 commands:
+Supported v1 commands:
 
 - `md-to-rag init`
 - `md-to-rag ingest`
@@ -28,17 +31,21 @@ Frozen v1 commands:
 - `md-to-rag index`
 - `md-to-rag query`
 - `md-to-rag inspect`
-
-Compatible future additions:
-
 - `md-to-rag diff`
 - `md-to-rag rebuild`
 
-These additions must preserve existing command behavior, artifact paths, manifest semantics, and JSON output contracts.
+All commands support stable `--json` responses. Command behavior, artifact
+paths, manifest semantics, and JSON output contracts must remain compatible
+across future changes.
 
 ## Public API and MCP
 
-The public Python API and MCP tools must expose only md_to_rag-owned request/response schemas, artifact paths, manifest metadata, status payloads, query results, and citations.
+The public Python API is `md_to_rag.api`. MCP metadata is exposed through
+`md_to_rag.mcp.list_tools()`.
+
+The public Python API and MCP tool schemas expose only md_to_rag-owned
+request/response schemas, artifact paths, manifest metadata, status payloads,
+query results, and citations.
 
 Public surfaces must not require callers to import, instantiate, serialize, or inspect objects from optional backend packages.
 
@@ -58,7 +65,8 @@ Required invariants:
 
 Native md_to_rag artifacts are the public contract. Backends are implementation details.
 
-RAG-Anything may be used only as an optional internal adapter/backend with target dependency:
+RAG-Anything may be used only as an optional internal adapter/backend with
+target dependency:
 
 ```text
 raganything>=1.3.1,<2.0

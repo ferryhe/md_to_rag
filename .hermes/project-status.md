@@ -5,17 +5,17 @@ Last updated: 2026-06-19
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/raganything-backend-adapter`
-- Active PR lane: PR9 optional internal RAG-Anything backend/adapter
+- Active branch: `codex/final-docs-ci`
+- Active PR lane: final documentation and CI cleanup
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: PR9 optional internal RAG-Anything backend/adapter; preserve current public CLI/API/MCP/artifact contracts and keep the native local backend as default
+- Current task: ensure README and final docs describe the implemented state, remove intermediate planning docs, and add CI without changing the public CLI/API/MCP interfaces
 
 ## Current Contract Decisions
 
 - Keep the current public CLI/API/MCP/artifact contract.
 - Public CLI command: `md-to-rag`.
 - Public v1 commands: `init`, `ingest`, `chunk`, `embed`, `index`, `query`, `inspect`, `diff`, and `rebuild`.
-- Later compatible commands: none currently planned; PR9 is limited to an optional internal RAG-Anything backend.
+- Later compatible commands: none currently planned.
 - RAG-Anything is optional internal adapter/backend only.
 - Optional dependency target: `raganything>=1.3.1,<2.0`.
 - Internal adapter touchpoints to document: `RAGAnythingConfig`, `insert_content_list(...)`, and `aquery(...)`.
@@ -34,7 +34,7 @@ Last updated: 2026-06-19
 | PR6 | `codex/embed-artifacts` | Merged (#9) | `embed` and cache/profile behavior. |
 | PR7 | `codex/index-query-artifacts` | Merged (#10) | Native `index` and `query`. |
 | PR8 | `codex/diff-rebuild-artifacts` | Merged (#11) | Compatible `diff` and `rebuild`. |
-| PR9 | `codex/raganything-backend-adapter` | In progress | Optional internal RAG-Anything backend. |
+| PR9 | `codex/raganything-backend-adapter` | Merged (#12) | Optional internal RAG-Anything backend. |
 
 ## Completion Policy
 
@@ -207,4 +207,23 @@ npx --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main
 - PR #12 config-auth follow-up: Pre-PR Codex Review Gate found valid auth-suffixed config key gaps such as `proxyAuth` and `client_auth`; added regressions and classify auth/authentication suffixes as secret-bearing config options.
 - PR #12 LightRAG allowlist follow-up: Pre-PR Codex Review Gate found valid non-LightRAG option forwarding gaps such as harmless `headers`, `request`, and `max_tokens`; narrowed the allowlist to actual LightRAG constructor tuning fields and reject metadata-only options before upstream construction.
 - PR #12 LightRAG compatibility follow-up: Pre-PR Codex Review Gate found valid bare embedding callback and option-value typing gaps; added regressions, require an EmbeddingFunc-compatible embedding callback, and validate allowed LightRAG option values before forwarding.
-- PR9 required next: rerun module/installed CLI help, `git diff --check`, and the Pre-PR Codex Review Gate for the complete follow-up diff, then commit, push, and re-check remote review threads/comments on PR #12.
+- Merged: PR #12 squash-merged to `main` at `2647bfb` after validation, follow-up review comments, and remote checks; remote and local task branches were cleaned up.
+
+## Final Docs and CI Cleanup
+
+- Scope: branch `codex/final-docs-ci` updates README, final public contract, RAG-Anything ADR, package/CLI descriptions, and project status; removes the obsolete intermediate managed-PR plan document; adds GitHub Actions CI.
+- Interface policy: keep the implemented CLI/API/MCP command set unchanged.
+- CI status before this cleanup: no `.github/workflows` directory was present on `main`.
+- Passed: `python -m pytest -q` (231 passed, 13 skipped).
+- Passed: module and installed CLI help for `md-to-rag` and every command.
+- Passed: JSON smoke for documented `init -> ingest -> chunk -> embed -> index -> query -> inspect -> diff -> rebuild` flow.
+- Passed: `git diff --check` with CRLF conversion warnings only.
+- Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; no actionable correctness issues.
+- Published: PR #13 at `https://github.com/ferryhe/md_to_rag/pull/13`.
+- CI follow-up: initial GitHub Actions run failed on Python 3.11 and 3.12 because clean Linux installs selected `typer 0.26.7`, whose help rendering broke the existing `--json` help assertion, and because Linux symlink support exposed the existing chunk-layer `documents_outside_project` typed error for a linked documents directory.
+- Confirmed-safe fixes: narrowed `typer` to the locally verified compatible range `<0.22`, updated the dependency contract regression, and allowed the documented typed `documents_outside_project` error in the symlink diff regression.
+- CI fix validation: focused regressions passed locally (2 passed, 1 skipped); full local suite passed with `python -m pytest -q` (231 passed, 13 skipped); clean CI-style venv installed `typer 0.21.2` and passed `python -m pytest -q` plus module/installed CLI help; `git diff --check` passed with CRLF conversion warnings only.
+- CI follow-up 2: subsequent GitHub Actions runs showed the remaining failure was the help-surface test depending on environment-sensitive Rich/Typer formatting rather than the CLI contract itself.
+- Final CI fix: restored the broad `typer>=0.16,<1` dependency bound, avoided adding a direct Click constraint, and replaced the brittle help-text assertion with a behavior-level regression that runs every command with `--json` and parses the JSON response envelope.
+- Final CI fix validation: focused dependency/JSON-option behavior tests passed; full local suite passed with `python -m pytest -q` (231 passed, 13 skipped); clean CI-style venv with `typer 0.26.7` passed `python -m pytest -q` (231 passed, 13 skipped) plus module and installed CLI help checks; `git diff --check` passed with CRLF conversion warnings only.
+- Final docs review follow-up: Pre-PR Codex Review Gate found the README artifact layout overstated files present immediately after `init`; clarified that `init` creates the manifest/directories and later commands generate JSONL/index files.

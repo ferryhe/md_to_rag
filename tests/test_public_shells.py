@@ -566,11 +566,27 @@ def test_md_to_rag_help_surface() -> None:
         assert command in result.output
 
 
-def test_every_command_help_surface_includes_json_option() -> None:
-    for command in COMMANDS:
-        result = runner.invoke(app, [command, "--help"], prog_name="md-to-rag")
+def test_every_command_accepts_json_option(tmp_path: Path) -> None:
+    command_args = {
+        "init": ["init", str(tmp_path / "project"), "--json"],
+        "ingest": ["ingest", "--json"],
+        "chunk": ["chunk", "--json"],
+        "embed": ["embed", "--json"],
+        "index": ["index", "--json"],
+        "query": ["query", "What artifacts exist?", "--json"],
+        "inspect": ["inspect", "--json"],
+        "diff": ["diff", "--json"],
+        "rebuild": ["rebuild", "--json"],
+    }
+
+    assert set(command_args) == set(COMMANDS)
+    for command, args in command_args.items():
+        result = runner.invoke(app, args, prog_name="md-to-rag")
         assert result.exit_code == 0
-        assert "--json" in result.output
+        payload = json.loads(result.output)
+        assert payload["command"] == command
+        assert payload["status"]
+        assert payload["message"]
 
 
 def test_query_missing_manifest_json_output_is_stable_and_backend_neutral() -> None:

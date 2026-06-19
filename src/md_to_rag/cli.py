@@ -11,7 +11,7 @@ from .schemas import CommandResponse
 
 app = typer.Typer(
     name="md-to-rag",
-    help="Create and inspect Markdown-to-RAG artifacts.",
+    help="Create, rebuild, and query Markdown-to-RAG artifacts.",
     no_args_is_help=True,
 )
 

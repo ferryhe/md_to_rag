@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install pytest
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Check CLI help
+        run: |
+          python -m md_to_rag --help
+          md-to-rag --help
+          python -m md_to_rag init --help
+          python -m md_to_rag ingest --help
+          python -m md_to_rag chunk --help
+          python -m md_to_rag embed --help
+          python -m md_to_rag index --help
+          python -m md_to_rag query --help
+          python -m md_to_rag inspect --help
+          python -m md_to_rag diff --help
+          python -m md_to_rag rebuild --help
