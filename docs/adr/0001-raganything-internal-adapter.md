@@ -1,11 +1,14 @@
 # ADR 0001: Keep RAG-Anything Internal
 
 Status: accepted
-Date: 2026-06-17
+Date: 2026-06-19
 
 ## Context
 
-md_to_rag needs a stable public contract for Markdown ingestion, chunking, embedding, indexing, querying, inspection, and later compatible diff/rebuild behavior. HKUDS/RAG-Anything is confirmed as a possible optional backend, with target dependency `raganything>=1.3.1,<2.0`.
+md_to_rag needs a stable public contract for Markdown ingestion, chunking,
+embedding, indexing, querying, inspection, diff, and rebuild behavior.
+HKUDS/RAG-Anything is supported only as a possible optional backend, with target
+dependency `raganything>=1.3.1,<2.0`.
 
 The project must avoid coupling downstream CLI, API, MCP, or artifact consumers to upstream backend objects.
 
@@ -26,4 +29,4 @@ The public md_to_rag CLI, Python API, MCP tools, and artifacts expose only md_to
 - Public consumers can use md_to_rag without installing or understanding RAG-Anything.
 - Optional backend changes are isolated behind adapter tests.
 - Any upstream result must be normalized before crossing a public md_to_rag boundary.
-- PR1 remains documentation-only; runtime adapter implementation belongs to a later PR.
+- The native md_to_rag artifact pipeline remains the default CLI/API/MCP path.

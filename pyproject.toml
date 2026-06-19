@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "md-to-rag"
 version = "0.1.0"
-description = "Markdown to RAG artifact CLI skeleton."
+description = "Markdown to RAG artifact CLI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
