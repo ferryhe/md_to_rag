@@ -5,10 +5,10 @@ Last updated: 2026-06-19
 ## Scope
 
 - Repo: `md_to_rag` (local checkout path varies by worker)
-- Active branch: `codex/version-management-policy`
-- Active PR lane: version management policy and changelog
+- Active branch: `main`
+- Active PR lane: none; version management policy follow-up merged
 - Sibling repos: off-limits unless a future task explicitly names them
-- Current task: add explicit package/release/artifact version management docs without changing public CLI/API/MCP interfaces
+- Current task: version management docs are complete and merged without changing public CLI/API/MCP interfaces
 
 ## Current Contract Decisions
 
@@ -54,7 +54,10 @@ Branch deletion outside this scoped managed-PR program, force-push, history rewr
 - Passed: `python -m pytest -q` (231 passed, 13 skipped).
 - Passed: `git diff --check` with CRLF conversion warnings only.
 - Passed: Pre-PR Codex Review Gate via `npx.cmd --yes @openai/codex -c 'model="gpt-5.5"' review --base origin/main`; no introduced correctness issues.
-- Status: ready to commit, push, and open PR from `codex/version-management-policy`.
+- Published: PR #14 at `https://github.com/ferryhe/md_to_rag/pull/14`.
+- Remote follow-up: CI passed on Python 3.11 and 3.12; no PR comments, reviews, or review threads were present.
+- Merged: PR #14 squash-merged to `main` at `9883de4`.
+- Cleanup: remote and local task branches for `codex/version-management-policy` were deleted.
 
 ## PR1 Verification
 
