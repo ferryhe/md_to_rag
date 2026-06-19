@@ -568,7 +568,12 @@ def test_md_to_rag_help_surface() -> None:
 
 def test_every_command_help_surface_includes_json_option() -> None:
     for command in COMMANDS:
-        result = runner.invoke(app, [command, "--help"], prog_name="md-to-rag")
+        result = runner.invoke(
+            app,
+            [command, "--help"],
+            prog_name="md-to-rag",
+            terminal_width=120,
+        )
         assert result.exit_code == 0
         assert "--json" in result.output
 
